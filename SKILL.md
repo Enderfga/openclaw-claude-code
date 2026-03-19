@@ -1,6 +1,6 @@
 ---
 name: claude-code-skill
-description: Control Claude Code via MCP protocol. Execute commands, read/write files, search code, and use all Claude Code tools programmatically with agent team support.
+description: Control Claude Code via MCP protocol. Trigger with "plan" to write a precise execution plan then feed it to Claude Code. Also supports direct commands, persistent sessions, agent teams, and advanced tool control.
 homepage: https://github.com/enderfga/claude-code-skill
 metadata: {
   "clawdis": {
@@ -25,17 +25,19 @@ metadata: {
 
 Control Claude Code via MCP (Model Context Protocol). This skill unleashes the full power of Claude Code for openclaw agents, including persistent sessions, agent teams, and advanced tool control.
 
+
+---
+
 ## ⚡ Quick Start
 
 ```bash
 # Start a persistent Claude session for your project
 claude-code-skill session-start myproject -d ~/project \
-  --permission-mode plan \
-  --allowed-tools "Bash,Read,Edit,Write,Glob,Grep" \
-  --max-budget 2.00
+  --permission-mode acceptEdits \
+  --allowed-tools "Bash,Read,Edit,Write,Glob,Grep"
 
-# Send a complex task (Claude will autonomously use tools)
-claude-code-skill session-send myproject "Find all TODO comments and create GitHub issues" --stream
+# Send a plan (Claude will execute precisely)
+claude-code-skill session-send myproject --stream '<精确的执行计划>'
 
 # Check progress
 claude-code-skill session-status myproject

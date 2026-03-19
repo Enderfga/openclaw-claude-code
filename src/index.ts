@@ -15,11 +15,18 @@ interface ApiResponse {
   [key: string]: unknown;
 }
 
-async function apiCall(endpoint: string, method: string = 'GET', body?: object): Promise<ApiResponse> {
+const DEFAULT_API_TIMEOUT_MS = 600_000; // 10 minutes — session tasks can be long-running
+
+async function apiCall(endpoint: string, method: string = 'GET', body?: object, timeoutMs?: number): Promise<ApiResponse> {
   const url = `${BACKEND_API_URL}${PREFIX}${endpoint}`;
+  const controller = new AbortController();
+  const effectiveTimeout = timeoutMs ?? DEFAULT_API_TIMEOUT_MS;
+  const timer = setTimeout(() => controller.abort(), effectiveTimeout);
+
   const options: RequestInit = {
     method,
     headers: { 'Content-Type': 'application/json' },
+    signal: controller.signal,
   };
   if (body) {
     options.body = JSON.stringify(body);
@@ -29,7 +36,13 @@ async function apiCall(endpoint: string, method: string = 'GET', body?: object):
     const response = await fetch(url, options);
     return await response.json() as ApiResponse;
   } catch (error) {
-    return { ok: false, error: (error as Error).message };
+    const err = error as Error;
+    if (err.name === 'AbortError') {
+      return { ok: false, error: `Request timed out after ${effectiveTimeout / 1000}s` };
+    }
+    return { ok: false, error: err.message };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -408,19 +421,27 @@ program
 program
   .command('session-send <name> <message>')
   .description('Send a message to a persistent session')
-  .option('-t, --timeout <ms>', 'Timeout in milliseconds', '120000')
+  .option('-t, --timeout <ms>', 'Timeout in milliseconds', '600000')
   .option('-s, --stream', 'Stream output in real-time')
-  .action(async (name: string, message: string, options: { timeout: string; stream?: boolean }) => {
-    console.log(`Sending to session '${name}'...`);
+  .option('--ndjson', 'Output NDJSON (one JSON per line) when streaming')
+  .action(async (name: string, message: string, options: { timeout: string; stream?: boolean; ndjson?: boolean }) => {
+    if (!options.ndjson) {
+      console.log(`Sending to session '${name}'...`);
+    }
+
+    const timeoutMs = parseInt(options.timeout);
 
     if (options.stream) {
       // Use SSE streaming endpoint
       const url = `${BACKEND_API_URL}${PREFIX}/session/send-stream`;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs + 30_000); // extra 30s grace for SSE cleanup
       try {
         const response = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, message, timeout: parseInt(options.timeout) })
+          body: JSON.stringify({ name, message, timeout: timeoutMs }),
+          signal: controller.signal,
         });
 
         if (!response.ok || !response.body) {
@@ -443,17 +464,22 @@ program
           for (const line of lines) {
             if (line.startsWith('data: ')) {
               try {
-                const data = JSON.parse(line.slice(6)) as { type: string; text?: string; tool?: string; error?: string };
-                if (data.type === 'text') {
-                  process.stdout.write(data.text || '');
-                } else if (data.type === 'tool_use') {
-                  console.log(`\n🔧 [Tool: ${data.tool}]`);
-                } else if (data.type === 'tool_result') {
-                  console.log('✓ Tool completed');
-                } else if (data.type === 'done') {
-                  console.log('\n--- Done ---');
-                } else if (data.type === 'error') {
-                  console.error(`\nError: ${data.error}`);
+                const data = JSON.parse(line.slice(6)) as { type: string; text?: string; tool?: string; input?: string; error?: string };
+                if (options.ndjson) {
+                  // NDJSON mode: output one JSON object per line
+                  console.log(JSON.stringify(data));
+                } else {
+                  if (data.type === 'text') {
+                    process.stdout.write(data.text || '');
+                  } else if (data.type === 'tool_use') {
+                    console.log(`\n🔧 [Tool: ${data.tool}]`);
+                  } else if (data.type === 'tool_result') {
+                    console.log('✓ Tool completed');
+                  } else if (data.type === 'done') {
+                    console.log('\n--- Done ---');
+                  } else if (data.type === 'error') {
+                    console.error(`\nError: ${data.error}`);
+                  }
                 }
               } catch {
                 // Ignore parse errors
@@ -462,15 +488,22 @@ program
           }
         }
       } catch (error) {
-        console.error(`Stream error: ${(error as Error).message}`);
+        const err = error as Error;
+        if (err.name === 'AbortError') {
+          console.error(`\nStream timed out after ${timeoutMs / 1000}s. The session may still be running — check with: claude-code-skill session-status ${name}`);
+        } else {
+          console.error(`Stream error: ${err.message}`);
+        }
+      } finally {
+        clearTimeout(timer);
       }
     } else {
-      // Non-streaming mode
+      // Non-streaming mode — pass timeout to both apiCall and server
       const result = await apiCall('/session/send', 'POST', {
         name,
         message,
-        timeout: parseInt(options.timeout)
-      });
+        timeout: timeoutMs
+      }, timeoutMs + 30_000); // extra 30s grace for HTTP overhead
 
       if (result.ok) {
         console.log(result.response as string);
