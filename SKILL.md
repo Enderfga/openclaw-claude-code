@@ -204,6 +204,71 @@ claude-code-skill session-model myproject gemini-pro
 
 # Start session with effort preset
 claude-code-skill session-start myproject -d ~/project --effort high
+
+# Model aliases (built-in: opus, sonnet, haiku, gemini-flash, gemini-pro)
+# Custom aliases via --model-overrides
+claude-code-skill session-start myproject -d ~/project \
+  --model-overrides '{"fast":"gemini-2.0-flash","smart":"claude-opus-4-5"}'
+```
+
+#### Cost Tracking
+
+```bash
+# Show cost breakdown for a session
+claude-code-skill session-cost myproject
+# → Model: claude-opus-4-5
+# → Tokens in: 12,345 | out: 3,456 | cached: 8,901
+# → Breakdown: Input $0.0103 | Cached $0.0033 | Output $0.0518
+# → 💰 Total: $0.0654
+```
+
+#### Branching
+
+```bash
+# Branch a session (fork + optional model/effort change)
+claude-code-skill session-branch myproject experiment
+claude-code-skill session-branch myproject fast-branch --model sonnet --effort low
+
+# Branch preserves full conversation history from parent
+# Both parent and branch continue independently
+```
+
+#### Hooks (Webhook Callbacks)
+
+```bash
+# List available hooks
+claude-code-skill session-hooks myproject
+
+# Register webhook URLs for events
+claude-code-skill session-hooks myproject \
+  --on-tool-error http://localhost:8080/webhook \
+  --on-context-high http://localhost:8080/webhook \
+  --on-stop http://localhost:8080/webhook
+
+# Available hooks:
+# onToolError    — a tool call failed
+# onContextHigh  — context usage exceeded 70%
+# onStop         — session stopped (includes cost summary)
+# onTurnComplete — each turn finished (includes usage)
+# onStopFailure  — API error (rate limit, auth failure)
+```
+
+#### Config Files
+
+```bash
+# Load session config from JSON file
+claude-code-skill session-start myproject --config agent.json
+
+# agent.json example:
+# {
+#   "cwd": "~/project",
+#   "permissionMode": "acceptEdits",
+#   "allowedTools": ["Bash", "Read", "Edit", "Write"],
+#   "effort": "high",
+#   "maxBudget": "5.00",
+#   "modelOverrides": { "fast": "gemini-2.0-flash" },
+#   "appendSystemPrompt": "Always write tests"
+# }
 ```
 
 #### Context Management

@@ -51,7 +51,7 @@ const program = new Command();
 program
   .name('claude-code-skill')
   .description('Control Claude Code via MCP protocol')
-  .version('1.1.0');
+  .version('1.2.0');
 
 // Connect command
 program
@@ -320,6 +320,8 @@ program
   .option('--session-id <uuid>', 'Use a specific session ID (must be valid UUID)')
   .option('--add-dir <dirs>', 'Additional directories to allow tool access (comma-separated)')
   .option('--effort <level>', 'Effort level: low, medium, high, max, auto (default: auto)')
+  .option('--model-overrides <json>', 'Model alias overrides as JSON (e.g. \'{"fast":"gemini-2.0-flash"}\')')
+  .option('--config <file>', 'Load session config from JSON file')
   .action(async (name: string | undefined, options: {
     cwd?: string;
     resume?: string;
@@ -340,7 +342,28 @@ program
     sessionId?: string;
     addDir?: string;
     effort?: string;
+    modelOverrides?: string;
+    config?: string;
   }) => {
+    // Load config file if provided
+    if (options.config) {
+      try {
+        const fs = await import('fs');
+        const configContent = fs.readFileSync(options.config, 'utf8');
+        const config = JSON.parse(configContent);
+        // Merge config into options (CLI flags override config file)
+        for (const [key, value] of Object.entries(config)) {
+          if (!(key in options) || (options as Record<string, unknown>)[key] === undefined) {
+            (options as Record<string, unknown>)[key] = value;
+          }
+        }
+        console.log(`Loaded config from: ${options.config}`);
+      } catch (e) {
+        console.error(`Failed to load config file: ${(e as Error).message}`);
+        process.exit(1);
+      }
+    }
+
     const sessionName = name || `session-${Date.now()}`;
     console.log(`Starting persistent session: ${sessionName}...`);
 
@@ -403,6 +426,14 @@ program
         process.exit(1);
       }
       body.effort = options.effort;
+    }
+    if (options.modelOverrides) {
+      try {
+        body.modelOverrides = JSON.parse(options.modelOverrides);
+      } catch {
+        console.error('Invalid --model-overrides JSON');
+        process.exit(1);
+      }
     }
 
     const result = await apiCall('/session/start', 'POST', body);
@@ -834,6 +865,111 @@ program
     const result = await apiCall('/session/effort', 'POST', { name, effort: level });
     if (result.ok) {
       console.log(`Session '${name}' effort set to: ${level}`);
+    } else {
+      console.error(`Failed: ${result.error}`);
+    }
+  });
+
+// Session cost tracking
+program
+  .command('session-cost <name>')
+  .description('Show cost breakdown for a session')
+  .action(async (name: string) => {
+    const result = await apiCall('/session/cost', 'POST', { name });
+    if (result.ok) {
+      const cost = result.cost as {
+        model?: string;
+        tokensIn?: number;
+        tokensOut?: number;
+        cachedTokens?: number;
+        pricing?: { inputPer1M?: number; outputPer1M?: number; cachedPer1M?: number };
+        breakdown?: { inputCost?: number; cachedCost?: number; outputCost?: number };
+        totalUsd?: number;
+      };
+      console.log(`Session '${name}' cost breakdown:\n`);
+      console.log(`  Model: ${cost.model || 'default'}`);
+      console.log(`  Tokens in:     ${(cost.tokensIn || 0).toLocaleString()}`);
+      console.log(`  Tokens out:    ${(cost.tokensOut || 0).toLocaleString()}`);
+      console.log(`  Cached tokens: ${(cost.cachedTokens || 0).toLocaleString()}`);
+      console.log('');
+      if (cost.pricing) {
+        console.log(`  Pricing (per 1M tokens):`);
+        console.log(`    Input:  $${cost.pricing.inputPer1M}`);
+        console.log(`    Output: $${cost.pricing.outputPer1M}`);
+        console.log(`    Cached: $${cost.pricing.cachedPer1M}`);
+      }
+      if (cost.breakdown) {
+        console.log('');
+        console.log(`  Breakdown:`);
+        console.log(`    Input:  $${(cost.breakdown.inputCost || 0).toFixed(4)}`);
+        console.log(`    Cached: $${(cost.breakdown.cachedCost || 0).toFixed(4)}`);
+        console.log(`    Output: $${(cost.breakdown.outputCost || 0).toFixed(4)}`);
+      }
+      console.log('');
+      console.log(`  💰 Total: $${(cost.totalUsd || 0).toFixed(4)}`);
+    } else {
+      console.error(`Failed: ${result.error}`);
+    }
+  });
+
+// Branch a session (fork + auto-switch)
+program
+  .command('session-branch <name> <newName>')
+  .description('Branch a session (fork with optional model/effort change)')
+  .option('-m, --model <model>', 'Use a different model for the branch')
+  .option('--effort <level>', 'Use a different effort level for the branch')
+  .action(async (name: string, newName: string, options: { model?: string; effort?: string }) => {
+    console.log(`Branching session '${name}' → '${newName}'...`);
+    const body: Record<string, unknown> = { name, newName };
+    if (options.model) body.model = options.model;
+    if (options.effort) body.effort = options.effort;
+    
+    const result = await apiCall('/session/branch', 'POST', body);
+    if (result.ok) {
+      console.log(`Session '${newName}' branched from '${name}'`);
+      if (result.claudeSessionId) console.log(`Claude Session ID: ${result.claudeSessionId}`);
+      if (options.model) console.log(`Model: ${options.model}`);
+      if (options.effort) console.log(`Effort: ${options.effort}`);
+    } else {
+      console.error(`Failed: ${result.error}`);
+    }
+  });
+
+// Manage session hooks
+program
+  .command('session-hooks <name>')
+  .description('List or register webhook hooks for a session')
+  .option('--on-tool-error <url>', 'Webhook URL for tool errors')
+  .option('--on-context-high <url>', 'Webhook URL when context exceeds 70%')
+  .option('--on-stop <url>', 'Webhook URL when session stops')
+  .option('--on-turn-complete <url>', 'Webhook URL when a turn completes')
+  .option('--on-stop-failure <url>', 'Webhook URL on API errors (rate limit, auth)')
+  .action(async (name: string, options: {
+    onToolError?: string;
+    onContextHigh?: string;
+    onStop?: string;
+    onTurnComplete?: string;
+    onStopFailure?: string;
+  }) => {
+    const hooks: Record<string, string> = {};
+    if (options.onToolError) hooks.onToolError = options.onToolError;
+    if (options.onContextHigh) hooks.onContextHigh = options.onContextHigh;
+    if (options.onStop) hooks.onStop = options.onStop;
+    if (options.onTurnComplete) hooks.onTurnComplete = options.onTurnComplete;
+    if (options.onStopFailure) hooks.onStopFailure = options.onStopFailure;
+
+    const body: Record<string, unknown> = { name };
+    if (Object.keys(hooks).length > 0) body.hooks = hooks;
+
+    const result = await apiCall('/session/hooks', 'POST', body);
+    if (result.ok) {
+      if (result.registered) {
+        console.log(`Hooks registered for '${name}': ${(result.registered as string[]).join(', ')}`);
+      } else {
+        console.log(`Session '${name}' hooks:`);
+        console.log(`  Registered: ${(result.hooks as string[]).length > 0 ? (result.hooks as string[]).join(', ') : 'none'}`);
+        console.log(`  Available: ${(result.available as string[]).join(', ')}`);
+      }
     } else {
       console.error(`Failed: ${result.error}`);
     }

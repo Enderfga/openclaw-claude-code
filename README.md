@@ -4,8 +4,16 @@ Control Claude Code via MCP (Model Context Protocol). This CLI provides **agent-
 
 Built for [OpenClaw](https://github.com/openclaw/openclaw) agents that need to drive Claude Code as a coding backend.
 
-## What's New in v1.1 🚀
+## What's New in v1.2 🚀
 
+- **Cost Tracking** — `session-cost` with full token/price breakdown (Claude, Gemini, GPT pricing)
+- **Session Branching** — `session-branch` to fork + change model/effort in one step
+- **Hooks System** — `session-hooks` with webhook callbacks for tool errors, context high, stop events
+- **Model Aliases** — built-in aliases (opus/sonnet/haiku/gemini-flash/gemini-pro) + custom `--model-overrides`
+- **Config Files** — `--config agent.json` to load session presets from file
+- **Cached Token Tracking** — separate pricing for prompt cache hits
+
+### v1.1
 - **Effort Control** — `--effort low/medium/high/max` at session and per-message level
 - **Ultrathink** — `--ultrathink` flag for deep reasoning on complex tasks
 - **Plan Mode** — `--plan` flag to have Claude create a plan before executing
@@ -271,6 +279,103 @@ claude-code-skill session-send team "@developer implement the design"
 claude-code-skill session-send team "@reviewer review the implementation"
 ```
 
+## Cost Tracking
+
+```bash
+# Show cost breakdown
+claude-code-skill session-cost myproject
+
+# Output:
+# Session 'myproject' cost breakdown:
+#   Model: claude-opus-4-6
+#   Tokens in:     12,345
+#   Tokens out:    3,456
+#   Cached tokens: 8,901
+#
+#   Pricing (per 1M tokens):
+#     Input:  $15
+#     Output: $75
+#     Cached: $1.875
+#
+#   Breakdown:
+#     Input:  $0.0517
+#     Cached: $0.0167
+#     Output: $0.2592
+#
+#   💰 Total: $0.3276
+```
+
+Built-in pricing for: Claude (Opus/Sonnet/Haiku), Gemini (Flash/Pro), GPT (4o/5.4). Falls back to Sonnet pricing for unknown models.
+
+## Session Branching
+
+```bash
+# Branch from an existing session
+claude-code-skill session-branch main experiment
+
+# Branch with different model/effort
+claude-code-skill session-branch main fast-test --model sonnet --effort low
+
+# Both sessions share history but diverge from the branch point
+```
+
+## Hooks (Webhook Callbacks)
+
+Register webhook URLs to get notified of session events:
+
+```bash
+# List available hooks
+claude-code-skill session-hooks myproject
+
+# Register webhooks
+claude-code-skill session-hooks myproject \
+  --on-tool-error http://localhost:8080/webhook \
+  --on-context-high http://localhost:8080/webhook
+
+# Available hooks:
+# onToolError    — tool call failed
+# onContextHigh  — context > 70% of max
+# onStop         — session stopped (includes cost summary)
+# onTurnComplete — turn finished (includes token usage)
+# onStopFailure  — API error (rate limit, auth)
+```
+
+Webhook payload format:
+```json
+{
+  "hook": "onToolError",
+  "session": "myproject",
+  "data": { "tool": "Bash", "error": "command not found" },
+  "timestamp": "2026-03-19T09:51:38.195Z"
+}
+```
+
+## Config Files
+
+Load session settings from a JSON file:
+
+```bash
+claude-code-skill session-start myproject --config agent.json
+```
+
+Example `agent.json`:
+```json
+{
+  "cwd": "~/project",
+  "permissionMode": "acceptEdits",
+  "allowedTools": ["Bash", "Read", "Edit", "Write", "Glob", "Grep"],
+  "effort": "high",
+  "maxBudget": "5.00",
+  "modelOverrides": {
+    "fast": "gemini-2.0-flash",
+    "smart": "claude-opus-4-6"
+  },
+  "appendSystemPrompt": "Always write tests. Follow existing code style."
+}
+```
+
+CLI flags override config file values.
+
 ## NDJSON Streaming Format
 
 With `--stream --ndjson`, each line is a JSON object:
@@ -297,16 +402,23 @@ With `--stream --ndjson`, each line is a JSON object:
 - [x] Auto-resume stopped sessions (`--auto-resume`)
 - [x] NDJSON streaming output
 - [x] Configurable API timeouts with AbortController
-- [x] Session fork/branch support
 
-### 🔜 Planned (v1.2+)
-- [ ] Hook system integration (PreToolUse, PostToolUse, StopFailure callbacks)
-- [ ] MCP elicitation support (structured input mid-task)
-- [ ] Worktree support (`--worktree` for parallel branches)
-- [ ] `session-branch` command (fork + switch in one step)
-- [ ] Plugin-shipped agent frontmatter (effort, maxTurns, disallowedTools)
-- [ ] `modelOverrides` setting for custom provider model IDs
-- [ ] Session cost tracking and reporting
+### ✅ Completed (v1.2)
+- [x] Session cost tracking with full breakdown (`session-cost`)
+- [x] Model pricing database (Claude, Gemini, GPT)
+- [x] Session branching (`session-branch`) — fork + model/effort change in one step
+- [x] Hook system (`session-hooks`) — webhook callbacks for tool errors, context high, stop, turn complete
+- [x] Model alias resolution (built-in: opus/sonnet/haiku/gemini-flash/gemini-pro)
+- [x] Custom model overrides (`--model-overrides`)
+- [x] Agent config files (`--config agent.json`)
+- [x] Cached token tracking with separate pricing
+- [x] Tool error tracking (`toolErrors` in stats)
+- [x] onContextHigh auto-fire at 70% usage
+- [x] onStopFailure hook for API errors
+
+### 🔜 Future
+- [ ] MCP elicitation support (needs human-in-the-loop, not useful for headless agents yet)
+- [ ] Worktree support (session-fork sufficient for now)
 
 ### 🚫 Not Planned
 - Voice mode (human-only, not useful for agents)
