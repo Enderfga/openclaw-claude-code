@@ -148,6 +148,23 @@ function getSession(name: string): ActiveSession | undefined {
   return sessions.get(name);
 }
 
+// ─── Session TTL cleanup ──────────────────────────────────────────────────────
+
+const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes idle → auto-remove
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [name, session] of sessions) {
+    const lastActive = new Date(session.stats.lastActivity).getTime();
+    if (now - lastActive > SESSION_TTL_MS) {
+      if (session.hooks.onStop) {
+        fireWebhook(session.hooks.onStop, { hook: 'onStop', session: name, data: { reason: 'ttl', stats: session.stats }, timestamp: new Date().toISOString() });
+      }
+      sessions.delete(name);
+    }
+  }
+}, 60_000); // check every minute
+
 // ─── Build claude CLI args ──────────────────────────────────────────────────
 
 function buildPrintArgs(
@@ -160,7 +177,9 @@ function buildPrintArgs(
   const args: string[] = ['-p', '--output-format', 'stream-json', '--verbose'];
 
   // Permission mode
-  if (config.permissionMode === 'auto' || config.dangerouslySkipPermissions) {
+  if (config.permissionMode === 'auto') {
+    args.push('--permission-mode', 'auto');
+  } else if (config.dangerouslySkipPermissions) {
     args.push('--dangerously-skip-permissions');
   } else if (config.permissionMode && config.permissionMode !== 'default') {
     args.push('--permission-mode', config.permissionMode);
@@ -198,20 +217,10 @@ function buildPrintArgs(
     args.push('--agent', config.agent);
   }
 
-  // Effort → budget tokens hack (claude doesn't expose --budget-tokens yet in API key mode
-  // but we can inject it via appendSystemPrompt for now; once upgraded it maps directly)
+  // Effort — use native CLI flag
   const effectiveEffort = effort || config.effort;
   if (effectiveEffort && effectiveEffort !== 'auto') {
-    const effortMap: Record<string, string> = {
-      low:    'Use minimal reasoning. Be concise and fast.',
-      medium: 'Use balanced reasoning.',
-      high:   'Think deeply. Use extended thinking where available.',
-      max:    'Think as hard as possible. No token budget constraints.',
-    };
-    const hint = effortMap[effectiveEffort];
-    if (hint && !config.systemPrompt) {
-      args.push('--append-system-prompt', hint);
-    }
+    args.push('--effort', effectiveEffort);
   }
 
   // Plan mode
@@ -336,7 +345,7 @@ function getClaudeSessionHistory(claudeSessionId: string, limit = 20): unknown[]
 }
 
 // List all session files for `sessions` endpoint
-function listAllClaudioSessions(limit = 20): unknown[] {
+function listAllClaudeSessions(limit = 20): unknown[] {
   try {
     if (!fs.existsSync(SESSIONS_DIR)) return [];
     const files = fs.readdirSync(SESSIONS_DIR)
@@ -415,11 +424,11 @@ app.get(`${PREFIX}/tools`, (_req, res) => {
   }
   // Return known tool set (matches what stream-json init event reports)
   const tools = [
-    'Task','AskUserQuestion','Bash','Edit','Glob','Grep',
+    'Task','Bash','Edit','Glob','Grep',
     'Read','Write','WebFetch','WebSearch','TodoWrite',
     'NotebookEdit','EnterPlanMode','ExitPlanMode',
     'EnterWorktree','ExitWorktree','CronCreate','CronDelete','CronList',
-    'TaskOutput','TaskStop','Skill',
+    'TaskStop','Skill',
   ].map(name => ({ name, description: `Claude Code built-in: ${name}` }));
   res.json({ ok: true, tools });
 });
@@ -477,7 +486,8 @@ app.post(`${PREFIX}/batch-read`, async (req: Request, res: Response) => {
     try {
       // Simple glob via find
       const { execSync } = await import('child_process');
-      const found = execSync(`find ${base} -name "${pattern}" 2>/dev/null || true`).toString().trim().split('\n').filter(Boolean);
+      const safePattern = pattern.replace(/[^a-zA-Z0-9_.*?\-\/]/g, '');
+      const found = execSync(`find ${JSON.stringify(base)} -name ${JSON.stringify(safePattern)} 2>/dev/null || true`).toString().trim().split('\n').filter(Boolean);
       for (const f of found) {
         try { files.push({ path: f, content: fs.readFileSync(f, 'utf8') }); }
         catch (e) { files.push({ path: f, content: '', error: (e as Error).message }); }
@@ -493,7 +503,7 @@ app.post(`${PREFIX}/batch-read`, async (req: Request, res: Response) => {
 
 app.get(`${PREFIX}/sessions`, (_req, res) => {
   const limit = parseInt((_req.query.limit as string) || '20', 10);
-  res.json({ ok: true, sessions: listAllClaudioSessions(limit) });
+  res.json({ ok: true, sessions: listAllClaudeSessions(limit) });
 });
 
 app.post(`${PREFIX}/resume`, async (req: Request, res: Response) => {
@@ -947,7 +957,13 @@ app.post(`${PREFIX}/session/context`, (req: Request, res: Response) => {
   if (!session) { res.json({ ok: false, error: `Session '${name}' not found` }); return; }
 
   const tokensUsed = session.stats.tokensIn + session.stats.tokensOut;
-  const tokensMax = 200_000; // claude-sonnet-4-6 context
+  const MODEL_CONTEXT: Record<string, number> = {
+    'opus': 200_000, 'sonnet': 200_000, 'haiku': 200_000,
+    'gemini-2.0-flash': 1_000_000, 'gemini-1.5-pro': 2_000_000,
+    'gpt-4o': 128_000, 'gpt-5.4': 128_000,
+  };
+  const modelKey = (session.config.resolvedModel || session.config.model || '').toLowerCase();
+  const tokensMax = Object.entries(MODEL_CONTEXT).find(([k]) => modelKey.includes(k))?.[1] || 200_000;
   const percentUsed = (tokensUsed / tokensMax) * 100;
 
   // Fire onContextHigh hook if > 70%
@@ -1037,11 +1053,24 @@ app.post(`${PREFIX}/session/restart`, (req: Request, res: Response) => {
 
 // ─── Start server ─────────────────────────────────────────────────────────────
 
-app.listen(PORT, '127.0.0.1', () => {
+const server = app.listen(PORT, '127.0.0.1', () => {
   console.log(`claude-code-backend listening on http://127.0.0.1:${PORT}`);
   console.log(`  API prefix: ${PREFIX}`);
   console.log(`  CLAUDE_BIN: ${CLAUDE_BIN}`);
   console.log(`  API Key: ${API_KEY ? "✓ set" : "✗ not set (set ANTHROPIC_API_KEY)"}`);
 });
+
+// Graceful shutdown
+for (const sig of ['SIGTERM', 'SIGINT'] as const) {
+  process.on(sig, () => {
+    console.log(`\nReceived ${sig}, shutting down...`);
+    server.close(() => {
+      console.log('Server closed.');
+      process.exit(0);
+    });
+    // Force exit after 5s if connections hang
+    setTimeout(() => process.exit(1), 5000);
+  });
+}
 
 export default app;

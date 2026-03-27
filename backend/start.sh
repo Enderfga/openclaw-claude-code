@@ -5,8 +5,8 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PID_FILE="$DIR/backend.pid"
 LOG_FILE="$DIR/backend.log"
 
-# Load user env (pick up ANTHROPIC_API_KEY or any provider key)
-[ -f ~/.bashrc ] && source ~/.bashrc 2>/dev/null || true
+# Load env file (ANTHROPIC_API_KEY, etc.)
+[ -f "$DIR/.env" ] && set -a && source "$DIR/.env" && set +a || true
 
 # Config — override via environment or .env file
 export CLAUDE_BIN="${CLAUDE_BIN:-claude}"
