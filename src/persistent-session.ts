@@ -106,7 +106,16 @@ export class PersistentClaudeSession extends EventEmitter {
 
   // ─── Start ───────────────────────────────────────────────────────────────
 
-  async start(claudeBin = 'claude'): Promise<this> {
+  /**
+   * Resolve the claude binary path.
+   * Priority: explicit argument > CLAUDE_BIN env var > 'claude' default.
+   */
+  private static resolveBin(claudeBin?: string): string {
+    return claudeBin || process.env.CLAUDE_BIN || 'claude';
+  }
+
+  async start(claudeBin?: string): Promise<this> {
+    const resolvedBin = PersistentClaudeSession.resolveBin(claudeBin);
     const args = [
       '-p',
       '--input-format', 'stream-json',
@@ -124,8 +133,9 @@ export class PersistentClaudeSession extends EventEmitter {
     }
 
     // Resume / fork
-    if (this.options.claudeResumeId) {
-      args.push('--resume', this.options.claudeResumeId);
+    const resumeId = this.options.claudeResumeId || this.options.resumeSessionId;
+    if (resumeId) {
+      args.push('--resume', resumeId);
       if (this.options.forkSession) args.push('--fork-session');
     }
     if (this.options.customSessionId) args.push('--session-id', this.options.customSessionId);
@@ -210,9 +220,11 @@ export class PersistentClaudeSession extends EventEmitter {
     }
 
     // Build spawn environment
+    // Preserve the parent process PATH so the resolved binary and any PATH-relative
+    // tools (git, node, npm, etc.) remain accessible on all platforms and distros.
     const spawnEnv: NodeJS.ProcessEnv = {
       ...process.env,
-      PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin',
+      PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin',
     };
     if (this.options.baseUrl) spawnEnv.ANTHROPIC_BASE_URL = this.options.baseUrl;
     if (this.options.enableAgentTeams) spawnEnv.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = 'true';
@@ -222,12 +234,14 @@ export class PersistentClaudeSession extends EventEmitter {
     }
 
     // Spawn
-    this.proc = spawn(claudeBin, args, {
+    this.proc = spawn(resolvedBin, args, {
       cwd: this.options.cwd,
       env: spawnEnv,
       stdio: ['pipe', 'pipe', 'pipe'],
       detached: true,
     });
+    // Unref so the parent process can exit independently of the child.
+    this.proc.unref();
 
     // Parse stdout line-by-line
     const rl = readline.createInterface({ input: this.proc.stdout!, crlfDelay: Infinity });
@@ -261,8 +275,17 @@ export class PersistentClaudeSession extends EventEmitter {
       this.once('ready', () => { clearTimeout(timeout); resolve(this); });
       this.once('error', (err) => { clearTimeout(timeout); reject(err); });
 
-      // Claude doesn't send explicit ready signal
+      // Emit ready on the first `system` init event from the CLI.
+      // Fall back to a 2 s timer in case the CLI version doesn't emit one.
+      const onInit = () => {
+        if (!this._isReady) {
+          this._isReady = true;
+          this.emit('ready');
+        }
+      };
+      this.once('init', onInit);
       setTimeout(() => {
+        this.removeListener('init', onInit);
         if (!this._isReady) {
           this._isReady = true;
           this.emit('ready');
@@ -526,7 +549,12 @@ export class PersistentClaudeSession extends EventEmitter {
       isReady: this._isReady,
       startTime: this.stats.startTime,
       lastActivity: this.stats.lastActivity,
-      contextPercent: 0,
+      // Approximate: assumes a 200k-token context window.
+      // Claude Code doesn't expose exact context usage via the JSON protocol,
+      // so this is a best-effort estimate based on cumulative token counts.
+      contextPercent: Math.min(100, Math.round(
+        (this.stats.tokensIn + this.stats.tokensOut) / 200_000 * 100
+      )),
       sessionId: this.sessionId,
       uptime: this.stats.startTime
         ? Math.round((Date.now() - new Date(this.stats.startTime).getTime()) / 1000)

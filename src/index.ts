@@ -111,6 +111,7 @@ const plugin = {
         betas:                  { type: ['string', 'array'], description: 'Custom beta headers' },
         enableAgentTeams:       { type: 'boolean', description: 'Enable experimental agent teams' },
         enableAutoMode:         { type: 'boolean', description: 'Enable auto permission mode' },
+        resumeSessionId:        { type: 'string', description: 'Resume an existing Claude Code session by its ID (e.g. from ~/.claude/sessions/). Replays conversation history via session/load instead of starting fresh.' },
       },
     },
     execute: async (_id, args) => {
