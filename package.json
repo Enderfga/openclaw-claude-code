@@ -15,6 +15,7 @@
   },
   "files": [
     "dist/",
+    "configs/",
     "skills/",
     "openclaw.plugin.json",
     "README.md",
