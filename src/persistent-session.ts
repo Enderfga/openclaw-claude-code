@@ -278,17 +278,35 @@ export class PersistentClaudeSession extends EventEmitter {
       this.once('ready', () => { clearTimeout(timeout); resolve(this); });
       this.once('error', (err) => { clearTimeout(timeout); reject(err); });
 
+      // hanging or incorrectly marking a dead process as "ready".
+      const onCloseBeforeReady = (code: number | null) => {
+        if (!this._isReady) {
+          clearTimeout(timeout);
+          reject(new Error(`Claude process exited prematurely with code ${code}. Session failed to start.`));
+        }
+      };
+      this.once('close', onCloseBeforeReady);
+
       // Emit ready on the first `system` init event from the CLI.
       // Fall back to a 2 s timer in case the CLI version doesn't emit one.
       const onInit = () => {
         if (!this._isReady) {
           this._isReady = true;
+          // Cleanup the early-close listener since initialization succeeded
+          this.removeListener('close', onCloseBeforeReady);
           this.emit('ready');
         }
       };
       this.once('init', onInit);
       setTimeout(() => {
         this.removeListener('init', onInit);
+        // If it was killed or has an exitCode, we reject the promise to prevent
+        if (this.proc?.killed || this.proc?.exitCode !== null) {
+          clearTimeout(timeout);
+          this.removeListener('close', onCloseBeforeReady);
+          reject(new Error("Claude CLI process crashed immediately upon startup. Fallback timer aborted."));
+          return;
+        }
         if (!this._isReady) {
           this._isReady = true;
           this.emit('ready');
