@@ -326,13 +326,14 @@ const plugin = {
 
     api.registerTool({
       name: 'claude_session_update_tools',
-      description: 'Update allowedTools or disallowedTools for a running session. Restarts the session process with --resume to apply the new tool constraints while preserving conversation history.',
+      description: 'Update allowedTools or disallowedTools for a running session. Restarts the session process with --resume to apply the new tool constraints while preserving conversation history. Rejects if the session is currently busy.',
       parameters: {
         type: 'object',
         properties: {
           name:             { type: 'string', description: 'Session name' },
-          allowedTools:     { type: 'array', items: { type: 'string' }, description: 'New allowedTools list' },
-          disallowedTools:  { type: 'array', items: { type: 'string' }, description: 'New disallowedTools list' },
+          allowedTools:     { type: 'array', items: { type: 'string' }, description: 'New allowedTools list (replaces existing, or merges if merge:true)' },
+          disallowedTools:  { type: 'array', items: { type: 'string' }, description: 'New disallowedTools list (replaces existing, or merges if merge:true)' },
+          removeTools:      { type: 'array', items: { type: 'string' }, description: 'Tools to remove from allowedTools/disallowedTools (applied after merge)' },
           merge:            { type: 'boolean', description: 'Merge with existing lists instead of replacing (default false)' },
         },
         required: ['name'],
@@ -341,6 +342,7 @@ const plugin = {
         const info = await getManager().updateTools(args.name as string, {
           allowedTools: args.allowedTools as string[] | undefined,
           disallowedTools: args.disallowedTools as string[] | undefined,
+          removeTools: args.removeTools as string[] | undefined,
           merge: args.merge as boolean | undefined,
         });
         return { ok: true, restarted: true, ...info };
