@@ -166,7 +166,7 @@ plan.md 中标注 \`[Claimed: council/${agentName}]\` 的任务才属于你。
 ## 工作区边界
 
 只在 \`${wtDir}\` 和 \`${projectDir}\` 内操作。
-禁止访问：\`~/\`、\`/Users/\`、\`~/.openclaw/\`、\`~/clawd/\` 等工作区外路径。
+禁止访问：\`~/\`、\`/Users/\`、\`~/.openclaw/\` 等工作区外路径。
 
 ## 效率规范
 
