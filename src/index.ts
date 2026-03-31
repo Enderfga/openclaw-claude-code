@@ -202,9 +202,8 @@ const plugin = {
       description: 'List all active Claude Code sessions',
       parameters: { type: 'object', properties: {} },
       execute: async (_id) => {
-        // If nothing has been initialised yet, there are no sessions.
-        if (!manager) return { ok: true, sessions: [] };
-        return { ok: true, sessions: manager.listSessions() };
+        if (!manager) return { ok: true, sessions: [], persisted: [] };
+        return { ok: true, sessions: manager.listSessions(), persisted: manager.listPersistedSessions() };
       },
     });
 

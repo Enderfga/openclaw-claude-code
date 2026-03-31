@@ -28,6 +28,69 @@ function getPluginVersion(): string {
 }
 
 
+// ─── Persistence ─────────────────────────────────────────────────────────────
+
+const PERSIST_DIR = path.join(os.homedir(), '.openclaw');
+const PERSIST_FILE = path.join(PERSIST_DIR, 'claude-sessions.json');
+const PERSIST_DISK_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days on disk
+
+interface PersistedSession {
+  name: string;
+  claudeSessionId: string;
+  cwd: string;
+  model?: string;
+  originalCreated: string;
+  lastResumed: string;
+  lastActivity: number;
+}
+
+function loadPersistedSessions(): Map<string, PersistedSession> {
+  try {
+    if (!fs.existsSync(PERSIST_FILE)) return new Map();
+    const raw = fs.readFileSync(PERSIST_FILE, 'utf8');
+    const arr: PersistedSession[] = JSON.parse(raw);
+    const now = Date.now();
+    // Filter out entries older than disk TTL
+    const valid = arr.filter(s => now - s.lastActivity < PERSIST_DISK_TTL_MS);
+    return new Map(valid.map(s => [s.name, s]));
+  } catch {
+    return new Map();
+  }
+}
+
+// Atomic write: write to .tmp then rename to avoid corrupt reads on crash
+function savePersistedSessions(sessions: Map<string, PersistedSession>): void {
+  try {
+    fs.mkdirSync(PERSIST_DIR, { recursive: true });
+    const arr = Array.from(sessions.values());
+    const tmp = PERSIST_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(arr, null, 2));
+    fs.renameSync(tmp, PERSIST_FILE);
+  } catch {
+    // Best-effort: never crash the manager on write failure
+  }
+}
+
+// Async version for hot-path (sendMessage, TTL cleanup)
+function savePersistedSessionsAsync(sessions: Map<string, PersistedSession>): void {
+  const arr = Array.from(sessions.values());
+  const tmp = PERSIST_FILE + '.tmp';
+  fs.mkdir(PERSIST_DIR, { recursive: true }, () => {
+    fs.writeFile(tmp, JSON.stringify(arr, null, 2), (err) => {
+      if (!err) fs.rename(tmp, PERSIST_FILE, () => {});
+    });
+  });
+}
+
+// Debounce helper — coalesces rapid writes into one
+function makeDebounced(fn: () => void, ms: number): () => void {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  return () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => { timer = null; fn(); }, ms);
+  };
+}
+
 import { PersistentClaudeSession } from './persistent-session.js';
 import {
   type SessionConfig,
@@ -67,6 +130,8 @@ export class SessionManager {
   private sessions = new Map<string, ManagedSession>();
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
   private pluginConfig: PluginConfig;
+  private persistedSessions: Map<string, PersistedSession>;
+  private _debouncedSave: () => void;
 
   constructor(config?: Partial<PluginConfig>) {
     this.pluginConfig = {
@@ -77,6 +142,14 @@ export class SessionManager {
       maxConcurrentSessions: config?.maxConcurrentSessions || 5,
       sessionTtlMinutes: config?.sessionTtlMinutes || 120,
     };
+
+    // Load persisted session registry from disk
+    this.persistedSessions = loadPersistedSessions();
+    // Debounced async writer — at most one write per 5 seconds on hot paths
+    this._debouncedSave = makeDebounced(
+      () => savePersistedSessionsAsync(this.persistedSessions),
+      5000,
+    );
 
     // Start TTL cleanup timer
     this.cleanupTimer = setInterval(() => this._cleanupIdleSessions(), 60_000);
@@ -96,13 +169,19 @@ export class SessionManager {
       throw new Error(`Max concurrent sessions (${this.pluginConfig.maxConcurrentSessions}) reached`);
     }
 
+    // Auto-resume: if we have a persisted claudeSessionId for this name, inject it
+    const persisted = this.persistedSessions.get(name);
+    // Unified: only use resumeSessionId (claudeResumeId is an internal alias, not exposed)
+    const resumeId = config.resumeSessionId || persisted?.claudeSessionId;
+
     const fullConfig: SessionConfig = {
       name,
-      cwd: config.cwd || process.cwd(),
+      cwd: config.cwd || persisted?.cwd || process.cwd(),
       permissionMode: config.permissionMode || this.pluginConfig.defaultPermissionMode,
       effort: config.effort || this.pluginConfig.defaultEffort,
-      model: config.model || this.pluginConfig.defaultModel,
+      model: config.model || persisted?.model || this.pluginConfig.defaultModel,
       ...config,
+      ...(resumeId ? { resumeSessionId: resumeId } : {}),
     };
 
     // Resolve model alias
@@ -119,13 +198,17 @@ export class SessionManager {
     const managed: ManagedSession = {
       session,
       config: fullConfig,
-      created: new Date().toISOString(),
+      created: persisted?.originalCreated || new Date().toISOString(),
       lastActivity: Date.now(),
       cwd: fullConfig.cwd,
       claudeSessionId: session.sessionId,
     };
 
     this.sessions.set(name, managed);
+
+    // Persist registry after session is live
+    this._persistSession(name, managed);
+
     return this._toSessionInfo(name, managed);
   }
 
@@ -154,6 +237,7 @@ export class SessionManager {
     // Update session ID if available
     if (managed.session.sessionId) {
       managed.claudeSessionId = managed.session.sessionId;
+      this._persistSession(name, managed);
     }
 
     if ('text' in result) {
@@ -171,12 +255,19 @@ export class SessionManager {
     const managed = this._getSession(name);
     managed.session.stop();
     this.sessions.delete(name);
+    // Explicit stop = user intent to end session — remove from disk too
+    this.persistedSessions.delete(name);
+    savePersistedSessions(this.persistedSessions);
   }
 
   listSessions(): SessionInfo[] {
     return Array.from(this.sessions.entries()).map(
       ([name, managed]) => this._toSessionInfo(name, managed)
     );
+  }
+
+  listPersistedSessions(): PersistedSession[] {
+    return Array.from(this.persistedSessions.values());
   }
 
   getStatus(name: string): SessionInfo & { stats: ReturnType<PersistentClaudeSession['getStats']> } {
@@ -532,9 +623,26 @@ export class SessionManager {
       console.log(`[SessionManager] Stopped session: ${name}`);
     }
     this.sessions.clear();
+    // Persist final state (TTL-expired sessions already removed by cleanup)
+    savePersistedSessions(this.persistedSessions);
   }
 
   // ─── Private ───────────────────────────────────────────────────────────
+
+  private _persistSession(name: string, managed: ManagedSession): void {
+    if (!managed.claudeSessionId) return;
+    const existing = this.persistedSessions.get(name);
+    this.persistedSessions.set(name, {
+      name,
+      claudeSessionId: managed.claudeSessionId,
+      cwd: managed.cwd,
+      model: managed.config.resolvedModel || managed.config.model,
+      originalCreated: existing?.originalCreated || managed.created,
+      lastResumed: new Date().toISOString(),
+      lastActivity: managed.lastActivity,
+    });
+    this._debouncedSave();
+  }
 
   private _getSession(name: string): ManagedSession {
     const managed = this.sessions.get(name);
@@ -577,10 +685,22 @@ export class SessionManager {
     const now = Date.now();
     for (const [name, managed] of this.sessions) {
       if (now - managed.lastActivity > ttlMs) {
-        console.log(`[SessionManager] Cleaning up idle session: ${name}`);
+        console.log(`[SessionManager] Cleaning up idle in-memory session: ${name}`);
         try { managed.session.stop(); } catch {}
         this.sessions.delete(name);
+        // NOTE: do NOT delete from persistedSessions — idle cleanup is
+        // in-memory only. Persisted entries survive for PERSIST_DISK_TTL_MS
+        // (7 days) so the session can be resumed after a gateway restart.
       }
     }
+    // Prune disk entries that exceeded the longer disk TTL
+    let pruned = false;
+    for (const [name, entry] of this.persistedSessions) {
+      if (now - entry.lastActivity > PERSIST_DISK_TTL_MS) {
+        this.persistedSessions.delete(name);
+        pruned = true;
+      }
+    }
+    if (pruned) savePersistedSessionsAsync(this.persistedSessions);
   }
 }
