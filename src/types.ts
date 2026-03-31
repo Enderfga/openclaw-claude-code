@@ -42,6 +42,7 @@ export interface SessionConfig {
   customSessionId?: string;
   sessionName?: string;
   claudeResumeId?: string;
+  resumeSessionId?: string;
   forkSession?: boolean;
   // Directories
   addDir?: string[];
