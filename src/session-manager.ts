@@ -195,11 +195,82 @@ export class SessionManager {
     managed.config.effort = level;
   }
 
+  /**
+   * Switch model for a session.
+   * Updates in-memory config only (takes effect on next restart/resume).
+   * For immediate effect, call restartWithConfig() explicitly.
+   */
   setModel(name: string, model: string): void {
     const managed = this._getSession(name);
     const resolved = this._resolveModel(model, managed.config.modelOverrides);
     managed.config.model = model;
     managed.config.resolvedModel = resolved;
+  }
+
+  /**
+   * Switch model immediately by restarting the session with --resume.
+   * Conversation history is preserved via the claude session ID.
+   */
+  async switchModel(name: string, model: string): Promise<SessionInfo> {
+    const managed = this._getSession(name);
+    const sessionId = managed.claudeSessionId || managed.session.sessionId;
+    if (!sessionId) throw new Error(`Session '${name}' has no claude session ID — cannot resume after restart`);
+
+    const oldConfig = managed.config;
+    managed.session.stop();
+    this.sessions.delete(name);
+
+    return this.startSession({
+      ...oldConfig,
+      name,
+      model,
+      resumeSessionId: sessionId,
+    });
+  }
+
+  /**
+   * Update allowedTools or disallowedTools at runtime.
+   *
+   * The claude CLI does not support changing tool lists while running, so
+   * the only way to apply new constraints is to restart the process with
+   * the updated flags and --resume to replay conversation history.
+   *
+   * This method stops the current process, merges the new tool config,
+   * and starts a fresh process in the same session context.
+   */
+  async updateTools(
+    name: string,
+    opts: { allowedTools?: string[]; disallowedTools?: string[]; merge?: boolean },
+  ): Promise<SessionInfo> {
+    const managed = this._getSession(name);
+    const sessionId = managed.claudeSessionId || managed.session.sessionId;
+    if (!sessionId) throw new Error(`Session '${name}' has no claude session ID — cannot resume after restart`);
+
+    const oldConfig = managed.config;
+    let newAllowed = opts.allowedTools;
+    let newDisallowed = opts.disallowedTools;
+
+    if (opts.merge) {
+      newAllowed = opts.allowedTools
+        ? [...new Set([...(oldConfig.allowedTools || []), ...opts.allowedTools])]
+        : oldConfig.allowedTools;
+      newDisallowed = opts.disallowedTools
+        ? [...new Set([...(oldConfig.disallowedTools || []), ...opts.disallowedTools])]
+        : oldConfig.disallowedTools;
+    }
+
+    // Stop current process
+    managed.session.stop();
+    this.sessions.delete(name);
+
+    // Restart with patched tool config + resume
+    return this.startSession({
+      ...oldConfig,
+      name,
+      allowedTools: newAllowed,
+      disallowedTools: newDisallowed,
+      resumeSessionId: sessionId,
+    });
   }
 
   getCost(name: string) {

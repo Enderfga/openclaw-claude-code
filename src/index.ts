@@ -321,6 +321,50 @@ const plugin = {
         return { ok: true, ...result };
       },
     });
+
+    // ─── Tool: claude_session_update_tools ───────────────────────────────
+
+    api.registerTool({
+      name: 'claude_session_update_tools',
+      description: 'Update allowedTools or disallowedTools for a running session. Restarts the session process with --resume to apply the new tool constraints while preserving conversation history.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name:             { type: 'string', description: 'Session name' },
+          allowedTools:     { type: 'array', items: { type: 'string' }, description: 'New allowedTools list' },
+          disallowedTools:  { type: 'array', items: { type: 'string' }, description: 'New disallowedTools list' },
+          merge:            { type: 'boolean', description: 'Merge with existing lists instead of replacing (default false)' },
+        },
+        required: ['name'],
+      },
+      execute: async (_id, args) => {
+        const info = await getManager().updateTools(args.name as string, {
+          allowedTools: args.allowedTools as string[] | undefined,
+          disallowedTools: args.disallowedTools as string[] | undefined,
+          merge: args.merge as boolean | undefined,
+        });
+        return { ok: true, restarted: true, ...info };
+      },
+    });
+
+    // ─── Tool: claude_session_switch_model ───────────────────────────────
+
+    api.registerTool({
+      name: 'claude_session_switch_model',
+      description: 'Switch the model for a running session immediately. Restarts the session process with --resume so the new model takes effect on the next message while preserving conversation history.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name:  { type: 'string', description: 'Session name' },
+          model: { type: 'string', description: 'New model (opus, sonnet, haiku, gemini-pro, etc.)' },
+        },
+        required: ['name', 'model'],
+      },
+      execute: async (_id, args) => {
+        const info = await getManager().switchModel(args.name as string, args.model as string);
+        return { ok: true, restarted: true, ...info };
+      },
+    });
   },
 };
 
