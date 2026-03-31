@@ -13,13 +13,15 @@ import * as os from 'node:os';
 
 const PERSIST_DIR = path.join(os.homedir(), '.openclaw');
 const PERSIST_FILE = path.join(PERSIST_DIR, 'claude-sessions.json');
+const PERSIST_DISK_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days on disk
 
 interface PersistedSession {
   name: string;
   claudeSessionId: string;
   cwd: string;
   model?: string;
-  created: string;
+  originalCreated: string;
+  lastResumed: string;
   lastActivity: number;
 }
 
@@ -28,20 +30,46 @@ function loadPersistedSessions(): Map<string, PersistedSession> {
     if (!fs.existsSync(PERSIST_FILE)) return new Map();
     const raw = fs.readFileSync(PERSIST_FILE, 'utf8');
     const arr: PersistedSession[] = JSON.parse(raw);
-    return new Map(arr.map(s => [s.name, s]));
+    const now = Date.now();
+    // Filter out entries older than disk TTL
+    const valid = arr.filter(s => now - s.lastActivity < PERSIST_DISK_TTL_MS);
+    return new Map(valid.map(s => [s.name, s]));
   } catch {
     return new Map();
   }
 }
 
+// Atomic write: write to .tmp then rename to avoid corrupt reads on crash
 function savePersistedSessions(sessions: Map<string, PersistedSession>): void {
   try {
     fs.mkdirSync(PERSIST_DIR, { recursive: true });
     const arr = Array.from(sessions.values());
-    fs.writeFileSync(PERSIST_FILE, JSON.stringify(arr, null, 2));
+    const tmp = PERSIST_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(arr, null, 2));
+    fs.renameSync(tmp, PERSIST_FILE);
   } catch {
     // Best-effort: never crash the manager on write failure
   }
+}
+
+// Async version for hot-path (sendMessage, TTL cleanup)
+function savePersistedSessionsAsync(sessions: Map<string, PersistedSession>): void {
+  const arr = Array.from(sessions.values());
+  const tmp = PERSIST_FILE + '.tmp';
+  fs.mkdir(PERSIST_DIR, { recursive: true }, () => {
+    fs.writeFile(tmp, JSON.stringify(arr, null, 2), (err) => {
+      if (!err) fs.rename(tmp, PERSIST_FILE, () => {});
+    });
+  });
+}
+
+// Debounce helper — coalesces rapid writes into one
+function makeDebounced(fn: () => void, ms: number): () => void {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  return () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => { timer = null; fn(); }, ms);
+  };
 }
 
 import { PersistentClaudeSession } from './persistent-session.js';
@@ -84,6 +112,7 @@ export class SessionManager {
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
   private pluginConfig: PluginConfig;
   private persistedSessions: Map<string, PersistedSession>;
+  private _debouncedSave: () => void;
 
   constructor(config?: Partial<PluginConfig>) {
     this.pluginConfig = {
@@ -97,6 +126,11 @@ export class SessionManager {
 
     // Load persisted session registry from disk
     this.persistedSessions = loadPersistedSessions();
+    // Debounced async writer — at most one write per 5 seconds on hot paths
+    this._debouncedSave = makeDebounced(
+      () => savePersistedSessionsAsync(this.persistedSessions),
+      5000,
+    );
 
     // Start TTL cleanup timer
     this.cleanupTimer = setInterval(() => this._cleanupIdleSessions(), 60_000);
@@ -118,7 +152,8 @@ export class SessionManager {
 
     // Auto-resume: if we have a persisted claudeSessionId for this name, inject it
     const persisted = this.persistedSessions.get(name);
-    const resumeId = config.resumeSessionId || config.claudeResumeId || persisted?.claudeSessionId;
+    // Unified: only use resumeSessionId (claudeResumeId is an internal alias, not exposed)
+    const resumeId = config.resumeSessionId || persisted?.claudeSessionId;
 
     const fullConfig: SessionConfig = {
       name,
@@ -144,7 +179,7 @@ export class SessionManager {
     const managed: ManagedSession = {
       session,
       config: fullConfig,
-      created: persisted?.created || new Date().toISOString(),
+      created: persisted?.originalCreated || new Date().toISOString(),
       lastActivity: Date.now(),
       cwd: fullConfig.cwd,
       claudeSessionId: session.sessionId,
@@ -201,7 +236,7 @@ export class SessionManager {
     const managed = this._getSession(name);
     managed.session.stop();
     this.sessions.delete(name);
-    // Remove from persisted registry
+    // Explicit stop = user intent to end session — remove from disk too
     this.persistedSessions.delete(name);
     savePersistedSessions(this.persistedSessions);
   }
@@ -400,15 +435,17 @@ export class SessionManager {
 
   private _persistSession(name: string, managed: ManagedSession): void {
     if (!managed.claudeSessionId) return;
+    const existing = this.persistedSessions.get(name);
     this.persistedSessions.set(name, {
       name,
       claudeSessionId: managed.claudeSessionId,
       cwd: managed.cwd,
       model: managed.config.resolvedModel || managed.config.model,
-      created: managed.created,
+      originalCreated: existing?.originalCreated || managed.created,
+      lastResumed: new Date().toISOString(),
       lastActivity: managed.lastActivity,
     });
-    savePersistedSessions(this.persistedSessions);
+    this._debouncedSave();
   }
 
   private _getSession(name: string): ManagedSession {
@@ -452,12 +489,22 @@ export class SessionManager {
     const now = Date.now();
     for (const [name, managed] of this.sessions) {
       if (now - managed.lastActivity > ttlMs) {
-        console.log(`[SessionManager] Cleaning up idle session: ${name}`);
+        console.log(`[SessionManager] Cleaning up idle in-memory session: ${name}`);
         try { managed.session.stop(); } catch {}
         this.sessions.delete(name);
-        this.persistedSessions.delete(name);
+        // NOTE: do NOT delete from persistedSessions — idle cleanup is
+        // in-memory only. Persisted entries survive for PERSIST_DISK_TTL_MS
+        // (7 days) so the session can be resumed after a gateway restart.
       }
     }
-    savePersistedSessions(this.persistedSessions);
+    // Prune disk entries that exceeded the longer disk TTL
+    let pruned = false;
+    for (const [name, entry] of this.persistedSessions) {
+      if (now - entry.lastActivity > PERSIST_DISK_TTL_MS) {
+        this.persistedSessions.delete(name);
+        pruned = true;
+      }
+    }
+    if (pruned) savePersistedSessionsAsync(this.persistedSessions);
   }
 }
