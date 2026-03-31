@@ -122,6 +122,7 @@ interface SendOptions {
   autoResume?: boolean;
   timeout?: number;
   onEvent?: (event: StreamEvent) => void;
+  onChunk?: (chunk: string) => void;
 }
 
 // ─── SessionManager ──────────────────────────────────────────────────────────
@@ -224,11 +225,18 @@ export class SessionManager {
     if (options.effort) sendOpts.effort = options.effort;
     if (options.plan) sendOpts.plan = true;
 
-    if (options.onEvent) {
+    if (options.onEvent || options.onChunk) {
       sendOpts.callbacks = {
-        onText: (text: string) => options.onEvent!({ type: 'text', result: text } as StreamEvent),
-        onToolUse: (event: unknown) => options.onEvent!({ type: 'tool_use', ...(event as object) } as StreamEvent),
-        onToolResult: (event: unknown) => options.onEvent!({ type: 'tool_result', ...(event as object) } as StreamEvent),
+        onText: (text: string) => {
+          if (options.onChunk) options.onChunk(text);
+          if (options.onEvent) options.onEvent({ type: 'text', result: text } as StreamEvent);
+        },
+        onToolUse: (event: unknown) => {
+          if (options.onEvent) options.onEvent({ type: 'tool_use', ...(event as object) } as StreamEvent);
+        },
+        onToolResult: (event: unknown) => {
+          if (options.onEvent) options.onEvent({ type: 'tool_result', ...(event as object) } as StreamEvent);
+        },
       };
     }
 

@@ -110,6 +110,7 @@ export interface SendOptions {
   autoResume?: boolean;
   timeout?: number;
   stream?: boolean;
+  onChunk?: (chunk: string) => void;
   onEvent?: (event: StreamEvent) => void;
 }
 

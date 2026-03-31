@@ -162,10 +162,12 @@ const plugin = {
           effort:     { type: 'string', enum: ['low', 'medium', 'high', 'max'], description: 'Effort for this message' },
           plan:       { type: 'boolean', description: 'Enable plan mode' },
           timeout:    { type: 'number', description: 'Timeout in ms (default 300000)' },
+          stream:     { type: 'boolean', description: 'Stream text chunks as they arrive (default false)' },
         },
         required: ['name', 'message'],
       },
-      execute: async (_id, args) => {
+      execute: async (_id, args, ctx?: { stream?: (chunk: string) => void }) => {
+        const streamFn = (args.stream as boolean | undefined) ? ctx?.stream : undefined;
         const result = await getManager().sendMessage(
           args.name as string,
           args.message as string,
@@ -173,6 +175,7 @@ const plugin = {
             effort: args.effort as EffortLevel | undefined,
             plan: args.plan as boolean | undefined,
             timeout: args.timeout as number | undefined,
+            onChunk: streamFn,
           }
         );
         return { ok: true, ...result };
