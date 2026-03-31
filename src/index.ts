@@ -162,10 +162,14 @@ const plugin = {
           effort:     { type: 'string', enum: ['low', 'medium', 'high', 'max'], description: 'Effort for this message' },
           plan:       { type: 'boolean', description: 'Enable plan mode' },
           timeout:    { type: 'number', description: 'Timeout in ms (default 300000)' },
+          stream:     { type: 'boolean', description: 'Collect text chunks as they arrive and include them in result.chunks[] (default false). Note: OpenClaw plugin SDK does not yet support mid-tool streaming to the caller, so chunks are buffered and returned with the final result.' },
         },
         required: ['name', 'message'],
       },
       execute: async (_id, args) => {
+        const wantChunks = args.stream as boolean | undefined;
+        const chunks: string[] = [];
+
         const result = await getManager().sendMessage(
           args.name as string,
           args.message as string,
@@ -173,9 +177,16 @@ const plugin = {
             effort: args.effort as EffortLevel | undefined,
             plan: args.plan as boolean | undefined,
             timeout: args.timeout as number | undefined,
+            // When stream:true, collect chunks into array for caller.
+            // True mid-tool streaming requires SDK-level support (not yet available).
+            onChunk: wantChunks ? (chunk: string) => { chunks.push(chunk); } : undefined,
           }
         );
-        return { ok: true, ...result };
+        return {
+          ok: true,
+          ...result,
+          ...(wantChunks ? { chunks } : {}),
+        };
       },
     });
 

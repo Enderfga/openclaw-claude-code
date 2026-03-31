@@ -28,3 +28,4 @@ yarn-error.log*
 
 # Test coverage
 coverage/
+package-lock.json
