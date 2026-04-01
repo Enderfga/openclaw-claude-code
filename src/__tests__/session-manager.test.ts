@@ -34,12 +34,22 @@ class MockSession extends EventEmitter implements ISession {
   sendCalls: Array<{ message: string | unknown[]; options?: SessionSendOptions }> = [];
   compactCalls: string[] = [];
 
-  get isReady() { return this._isReady; }
-  get isPaused() { return this._isPaused; }
-  get isBusy() { return this._isBusy; }
+  get isReady() {
+    return this._isReady;
+  }
+  get isPaused() {
+    return this._isPaused;
+  }
+  get isBusy() {
+    return this._isBusy;
+  }
 
-  setBusy(b: boolean) { this._isBusy = b; }
-  setReady(r: boolean) { this._isReady = r; }
+  setBusy(b: boolean) {
+    this._isBusy = b;
+  }
+  setReady(r: boolean) {
+    this._isReady = r;
+  }
 
   async start(): Promise<this> {
     this.startCalled++;
@@ -117,9 +127,15 @@ class MockSession extends EventEmitter implements ISession {
     return { text: 'compacted', event: { type: 'result' } };
   }
 
-  getEffort(): EffortLevel { return this._effort; }
-  setEffort(level: EffortLevel): void { this._effort = level; }
-  resolveModel(alias: string): string { return alias; }
+  getEffort(): EffortLevel {
+    return this._effort;
+  }
+  setEffort(level: EffortLevel): void {
+    this._effort = level;
+  }
+  resolveModel(alias: string): string {
+    return alias;
+  }
 }
 
 // ─── Mock Factory ─────────────────────────────────────────────────────────
@@ -494,9 +510,7 @@ describe('SessionManager', () => {
 
     it('returns empty array when no matches', async () => {
       await mgr.startSession({ name: 'grep-empty', cwd: '/tmp' });
-      lastMock().addHistory([
-        { time: '2025-01-01T00:00:00Z', type: 'user', event: { text: 'nothing here' } },
-      ]);
+      lastMock().addHistory([{ time: '2025-01-01T00:00:00Z', type: 'user', event: { text: 'nothing here' } }]);
 
       const results = await mgr.grepSession('grep-empty', 'zzz_not_found');
       expect(results.length).toBe(0);
@@ -621,16 +635,12 @@ describe('SessionManager', () => {
 
     it('throws when sender session does not exist', async () => {
       await mgr.startSession({ name: 'target', cwd: '/tmp' });
-      await expect(mgr.sessionSendTo('ghost', 'target', 'hi')).rejects.toThrow(
-        "Sender session 'ghost' not found",
-      );
+      await expect(mgr.sessionSendTo('ghost', 'target', 'hi')).rejects.toThrow("Sender session 'ghost' not found");
     });
 
     it('throws when target session does not exist', async () => {
       await mgr.startSession({ name: 'sender', cwd: '/tmp' });
-      await expect(mgr.sessionSendTo('sender', 'ghost', 'hi')).rejects.toThrow(
-        "Target session 'ghost' not found",
-      );
+      await expect(mgr.sessionSendTo('sender', 'ghost', 'hi')).rejects.toThrow("Target session 'ghost' not found");
     });
 
     it('sessionInbox returns unread messages by default', async () => {
@@ -974,9 +984,7 @@ describe('SessionManager', () => {
       await mgr.startSession({ name: 'busy-switch', cwd: '/tmp' });
       lastMock().setBusy(true);
 
-      await expect(mgr.switchModel('busy-switch', 'sonnet')).rejects.toThrow(
-        'currently processing a message',
-      );
+      await expect(mgr.switchModel('busy-switch', 'sonnet')).rejects.toThrow('currently processing a message');
     });
 
     it('rejects when session has no session ID', async () => {
@@ -989,18 +997,14 @@ describe('SessionManager', () => {
       const managed = (mgr as any).sessions.get('no-id');
       managed.claudeSessionId = undefined;
 
-      await expect(mgr.switchModel('no-id', 'sonnet')).rejects.toThrow(
-        'has no claude session ID',
-      );
+      await expect(mgr.switchModel('no-id', 'sonnet')).rejects.toThrow('has no claude session ID');
     });
 
     it('rejects unknown model that does not match known patterns', async () => {
       await mgr.startSession({ name: 'bad-model', cwd: '/tmp' });
       lastMock().setBusy(false);
 
-      await expect(mgr.switchModel('bad-model', 'totally-unknown')).rejects.toThrow(
-        "Unknown model 'totally-unknown'",
-      );
+      await expect(mgr.switchModel('bad-model', 'totally-unknown')).rejects.toThrow("Unknown model 'totally-unknown'");
     });
 
     it('successfully switches model for a valid known-pattern model', async () => {
