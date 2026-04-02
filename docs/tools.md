@@ -143,7 +143,7 @@ Send message to a specific teammate.
 
 ---
 
-## Council (4)
+## Council (7)
 
 ### `council_start`
 
@@ -183,6 +183,37 @@ Inject a user message into the next round of a running council.
 |-----------|------|----------|
 | `id` | string | yes |
 | `message` | string | yes |
+
+### `council_review`
+
+Review a completed council session. Returns a structured report of all changed files, branches, worktrees, plan.md status, review files, and agent summaries. Does not modify any state.
+
+| Parameter | Type | Required |
+|-----------|------|----------|
+| `id` | string | yes |
+
+**Returns**: `CouncilReviewResult` with `changedFiles`, `branches`, `worktrees`, `reviews`, `planContent`, and `agentSummaries`.
+
+### `council_accept`
+
+Accept and finalize council work. Cleans up all council scaffolding: removes worktrees, deletes `council/*` branches, removes `plan.md` and `reviews/` directory.
+
+| Parameter | Type | Required |
+|-----------|------|----------|
+| `id` | string | yes |
+
+**Returns**: `CouncilAcceptResult` with `branchesDeleted`, `worktreesRemoved`, `planDeleted`, `reviewsDeleted`.
+
+### `council_reject`
+
+Reject council work and provide feedback. Rewrites `plan.md` with rejection feedback and commits it. Does NOT delete any worktrees or branches — the council can be restarted to retry.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `id` | string | yes | Council session ID |
+| `feedback` | string | yes | Detailed feedback on what needs to be fixed |
+
+**Returns**: `CouncilRejectResult` with `planRewritten` and `feedback`.
 
 ---
 

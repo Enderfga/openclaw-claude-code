@@ -20,9 +20,10 @@ Ported from [three-minds](https://github.com/Enderfga/three-minds) and adapted t
 │    Agent 2 ──┼── parallel ── code + tests    │
 │    Agent 3 ──┘                               │
 │                                              │
-│  Vote: all YES? ─── yes ──→ Done             │
-│         │                                    │
-│         no ──→ next round                    │
+│  Vote: all YES? ─── yes ──→ Review           │
+│         │                    │               │
+│         no ──→ next round    ├─ Accept ──→ Cleanup & Done
+│                              └─ Reject ──→ Rewrite plan.md
 └──────────────────────────────────────────────┘
 ```
 
@@ -118,6 +119,47 @@ Agents can use different engines and models:
 | `council_status` | Get current status (running/consensus/max_rounds/error), responses, votes. |
 | `council_abort` | Stop all agent sessions and terminate the council. |
 | `council_inject` | Inject a user message into all agents' prompts in the next round. |
+| `council_review` | Review completed council output: changed files, branches, plan status, agent summaries. |
+| `council_accept` | Accept work and clean up: remove worktrees, branches, plan.md, reviews/. |
+| `council_reject` | Reject work: rewrite plan.md with feedback for the council to retry. |
+
+## Post-Processing Lifecycle
+
+After a council reaches consensus or hits max rounds, use the review/accept/reject tools to finalize the work.
+
+### 1. Review
+
+```json
+{ "tool": "council_review", "args": { "id": "<council-id>" } }
+```
+
+Returns a structured report:
+- **changedFiles**: all files modified by the council with insertion/deletion counts
+- **branches**: remaining `council/*` branches
+- **worktrees**: remaining council worktrees
+- **planContent**: full plan.md text (check for unchecked tasks)
+- **reviews**: review files in `reviews/` directory
+- **agentSummaries**: final-round output preview from each agent
+
+### 2. Accept
+
+```json
+{ "tool": "council_accept", "args": { "id": "<council-id>" } }
+```
+
+Cleans up all council scaffolding:
+- Removes all `council/*` worktrees and `.worktrees/` directory
+- Deletes all `council/*` branches
+- Removes `plan.md` and `reviews/` directory
+- Sets council status to `accepted`
+
+### 3. Reject
+
+```json
+{ "tool": "council_reject", "args": { "id": "<council-id>", "feedback": "..." } }
+```
+
+Rewrites `plan.md` with rejection feedback and commits it. All worktrees and branches are preserved so the council can be restarted to address the feedback.
 
 ## Configuration
 

@@ -126,6 +126,9 @@ import {
   type ISession,
   type CouncilConfig,
   type CouncilSession,
+  type CouncilReviewResult,
+  type CouncilAcceptResult,
+  type CouncilRejectResult,
   type InboxMessage,
   type UltraplanResult,
   type UltrareviewResult,
@@ -823,6 +826,24 @@ export class SessionManager {
     const council = this.councils.get(id);
     if (!council) throw new Error(`Council '${id}' not found`);
     council.injectMessage(message);
+  }
+
+  async councilReview(id: string): Promise<CouncilReviewResult> {
+    const council = this.councils.get(id);
+    if (!council) throw new Error(`Council '${id}' not found`);
+    return council.review();
+  }
+
+  async councilAccept(id: string): Promise<CouncilAcceptResult> {
+    const council = this.councils.get(id);
+    if (!council) throw new Error(`Council '${id}' not found`);
+    return council.accept();
+  }
+
+  async councilReject(id: string, feedback: string): Promise<CouncilRejectResult> {
+    const council = this.councils.get(id);
+    if (!council) throw new Error(`Council '${id}' not found`);
+    return council.reject(feedback);
   }
 
   // ─── Inbox (cross-session messaging) ────────────────────────────────

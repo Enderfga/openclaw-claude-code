@@ -426,9 +426,49 @@ export interface CouncilSession {
   task: string;
   config: CouncilConfig;
   responses: AgentResponse[];
-  status: 'running' | 'consensus' | 'awaiting_user' | 'max_rounds' | 'error';
+  status: 'running' | 'consensus' | 'awaiting_user' | 'max_rounds' | 'error' | 'accepted' | 'rejected';
   startTime: string;
   endTime?: string;
   finalSummary?: string;
   compactContext?: string;
+}
+
+// ─── Council Post-Processing Types ─────────────────────────────────────────
+
+export type CouncilFileStatus = 'clean' | 'needs_rework' | 'redundant' | 'missing';
+
+export interface CouncilChangedFile {
+  file: string;
+  status: CouncilFileStatus;
+  insertions: number;
+  deletions: number;
+  note?: string;
+}
+
+export interface CouncilReviewResult {
+  councilId: string;
+  projectDir: string;
+  status: 'consensus' | 'max_rounds' | 'error';
+  rounds: number;
+  planExists: boolean;
+  planContent?: string;
+  changedFiles: CouncilChangedFile[];
+  branches: string[];
+  worktrees: string[];
+  reviews: string[];
+  agentSummaries: Array<{ agent: string; consensus: boolean; preview: string }>;
+}
+
+export interface CouncilAcceptResult {
+  councilId: string;
+  branchesDeleted: string[];
+  worktreesRemoved: string[];
+  planDeleted: boolean;
+  reviewsDeleted: boolean;
+}
+
+export interface CouncilRejectResult {
+  councilId: string;
+  planRewritten: boolean;
+  feedback: string;
 }

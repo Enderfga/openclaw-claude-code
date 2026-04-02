@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] - 2026-04-03
+
+### Added
+- Council post-processing lifecycle: `council_review`, `council_accept`, `council_reject` tools — completes the council workflow with structured review, cleanup, and rejection-with-feedback
+- `CouncilReviewResult`, `CouncilAcceptResult`, `CouncilRejectResult` types for structured post-processing responses
+- Council `accepted` and `rejected` status states
+
+### Changed
+- Translated `configs/council-system-prompt.md` from Chinese to English for project-wide consistency
+- Translated all Chinese strings in `council.ts` agent prompts and CLAUDE.md worktree templates to English
+- `openclaw.plugin.json` contracts.tools updated from 24 → 27
+
 ## [2.4.0] - 2026-04-01
 
 ### Added

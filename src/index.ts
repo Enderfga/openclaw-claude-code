@@ -539,6 +539,65 @@ const plugin = {
         return { ok: true };
       },
     });
+
+    // ─── Tool: council_review ──────────────────────────────────────────
+
+    api.registerTool({
+      name: 'council_review',
+      description:
+        'Review a completed council session. Returns a structured report of all changed files, branches, worktrees, plan.md status, review files, and agent summaries. Does not modify any state — purely informational. Use this before deciding to accept or reject.',
+      parameters: {
+        type: 'object',
+        properties: { id: { type: 'string', description: 'Council session ID' } },
+        required: ['id'],
+      },
+      execute: async (_id, args) => {
+        const result = await getManager().councilReview(args.id as string);
+        return { ok: true, ...result };
+      },
+    });
+
+    // ─── Tool: council_accept ──────────────────────────────────────────
+
+    api.registerTool({
+      name: 'council_accept',
+      description:
+        'Accept and finalize council work. Cleans up all council scaffolding: removes worktrees, deletes council/* branches, removes plan.md and reviews/ directory. Only call after reviewing with council_review.',
+      parameters: {
+        type: 'object',
+        properties: { id: { type: 'string', description: 'Council session ID' } },
+        required: ['id'],
+      },
+      execute: async (_id, args) => {
+        const result = await getManager().councilAccept(args.id as string);
+        return { ok: true, ...result };
+      },
+    });
+
+    // ─── Tool: council_reject ──────────────────────────────────────────
+
+    api.registerTool({
+      name: 'council_reject',
+      description:
+        'Reject council work and provide feedback. Rewrites plan.md with rejection feedback and commits it. Does NOT delete any worktrees or branches — the council can be restarted to retry. Use this when the council output is incomplete or broken.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'Council session ID' },
+          feedback: {
+            type: 'string',
+            description:
+              'Detailed feedback explaining why the work is rejected and what needs to be fixed',
+          },
+        },
+        required: ['id', 'feedback'],
+      },
+      execute: async (_id, args) => {
+        const result = await getManager().councilReject(args.id as string, args.feedback as string);
+        return { ok: true, ...result };
+      },
+    });
+
     // ─── Tool: claude_session_send_to ─────────────────────────────────
 
     api.registerTool({

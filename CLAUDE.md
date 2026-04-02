@@ -9,12 +9,12 @@ managed session layer. Key source files:
 
 | File | Purpose |
 |------|---------|
-| `src/index.ts` | Plugin entry — registers all 24 tools with OpenClaw SDK |
+| `src/index.ts` | Plugin entry — registers all 27 tools with OpenClaw SDK |
 | `src/session-manager.ts` | Core orchestrator — session lifecycle, inbox, council, ultraplan/ultrareview |
 | `src/persistent-session.ts` | Claude Code CLI wrapper (spawn, JSON protocol, stream parsing) |
 | `src/persistent-codex-session.ts` | Codex CLI wrapper (same ISession interface) |
 | `src/persistent-gemini-session.ts` | Gemini CLI wrapper (stream-json, per-message spawning) |
-| `src/council.ts` | Multi-agent collaboration engine with git worktree isolation |
+| `src/council.ts` | Multi-agent collaboration engine with git worktree isolation and post-processing (review/accept/reject) |
 | `src/consensus.ts` | Consensus voting parser for council |
 | `src/types.ts` | All shared types, interfaces, model pricing |
 | `src/embedded-server.ts` | HTTP server for standalone/CLI usage |

@@ -147,7 +147,7 @@ graph TD
 
 ```
 src/
-├── index.ts                    # Plugin entry — 24 tools + proxy route
+├── index.ts                    # Plugin entry — 27 tools + proxy route
 ├── types.ts                    # Shared types, ISession interface, model pricing
 ├── persistent-session.ts       # Claude Code engine (ISession)
 ├── persistent-codex-session.ts  # Codex engine (ISession)
@@ -175,7 +175,7 @@ src/
 | [Multi-Engine](./docs/multi-engine.md) | Claude + Codex + Gemini engines, ISession interface |
 | [Council](./docs/council.md) | Multi-agent collaboration, worktree isolation, consensus voting |
 | [Ultraplan & Ultrareview](./docs/ultra.md) | Deep planning and fleet code review |
-| [Tools Reference](./docs/tools.md) | Complete tool API (24 tools) |
+| [Tools Reference](./docs/tools.md) | Complete tool API (27 tools) |
 | [CLI Reference](./docs/cli.md) | Command-line interface |
 | [Contributing](./CONTRIBUTING.md) | Dev setup, code style, PR guidelines |
 

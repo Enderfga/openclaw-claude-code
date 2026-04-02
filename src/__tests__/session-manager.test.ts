@@ -1109,5 +1109,17 @@ describe('SessionManager', () => {
     it('councilInject throws for unknown council', () => {
       expect(() => mgr.councilInject('unknown', 'msg')).toThrow("Council 'unknown' not found");
     });
+
+    it('councilReview throws for unknown council', async () => {
+      await expect(mgr.councilReview('unknown')).rejects.toThrow("Council 'unknown' not found");
+    });
+
+    it('councilAccept throws for unknown council', async () => {
+      await expect(mgr.councilAccept('unknown')).rejects.toThrow("Council 'unknown' not found");
+    });
+
+    it('councilReject throws for unknown council', async () => {
+      await expect(mgr.councilReject('unknown', 'bad work')).rejects.toThrow("Council 'unknown' not found");
+    });
   });
 });
