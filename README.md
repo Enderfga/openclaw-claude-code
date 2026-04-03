@@ -150,34 +150,36 @@ src/
 ├── index.ts                    # Plugin entry — 27 tools + proxy route
 ├── types.ts                    # Shared types, ISession interface, model pricing
 ├── persistent-session.ts       # Claude Code engine (ISession)
-├── persistent-codex-session.ts  # Codex engine (ISession)
+├── persistent-codex-session.ts # Codex engine (ISession)
 ├── persistent-gemini-session.ts # Gemini engine (ISession)
 ├── session-manager.ts          # Multi-session orchestration + council management
 ├── council.ts                  # Multi-agent council orchestration
 ├── consensus.ts                # Consensus vote parsing
 ├── embedded-server.ts          # HTTP server for standalone mode
-├── hooks/
-│   └── prompt-bypass.ts
 └── proxy/
     ├── handler.ts              # Provider detection + routing
     ├── anthropic-adapter.ts    # Anthropic ↔ OpenAI conversion
     ├── schema-cleaner.ts       # Gemini schema compatibility
     └── thought-cache.ts        # Gemini thought caching
+
+skills/
+├── SKILL.md                    # OpenClaw skill definition (triggers + metadata)
+└── references/                 # All documentation (progressive disclosure)
+    ├── getting-started.md      # Installation, configuration, first session
+    ├── sessions.md             # Persistent sessions, resume, cost tracking
+    ├── multi-engine.md         # Claude + Codex + Gemini engines
+    ├── council.md              # Multi-agent collaboration protocol
+    ├── tools.md                # Complete 27-tool API reference
+    ├── inbox.md                # Cross-session messaging
+    ├── ultra.md                # Ultraplan & Ultrareview
+    └── cli.md                  # Command-line interface
 ```
 
 ## Documentation
 
-| Doc | Description |
-|-----|-------------|
-| [Getting Started](./skills/references/getting-started.md) | Installation, configuration, first session |
-| [Sessions](./skills/references/sessions.md) | Persistent sessions, resume, model switching, cost tracking |
-| [Session Inbox](./skills/references/inbox.md) | Cross-session messaging |
-| [Multi-Engine](./skills/references/multi-engine.md) | Claude + Codex + Gemini engines, ISession interface |
-| [Council](./skills/references/council.md) | Multi-agent collaboration, worktree isolation, consensus voting |
-| [Ultraplan & Ultrareview](./skills/references/ultra.md) | Deep planning and fleet code review |
-| [Tools Reference](./skills/references/tools.md) | Complete tool API (27 tools) |
-| [CLI Reference](./skills/references/cli.md) | Command-line interface |
-| [Contributing](./CONTRIBUTING.md) | Dev setup, code style, PR guidelines |
+All documentation lives in [`skills/references/`](./skills/references/) — see the directory tree above. Start with [Getting Started](./skills/references/getting-started.md), or jump to the [Tools Reference](./skills/references/tools.md) for the full 27-tool API.
+
+For contributing: see [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## Engine Compatibility
 
