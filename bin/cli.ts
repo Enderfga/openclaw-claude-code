@@ -84,6 +84,7 @@ program
   .option('--permission-mode <mode>', 'Permission mode', 'acceptEdits')
   .option('--effort <level>', 'Effort level')
   .option('--allowed-tools <tools>', 'Comma-separated tools to auto-approve')
+  .option('--disallowed-tools <tools>', 'Comma-separated tools to deny')
   .option('--max-turns <n>', 'Max agent loop turns')
   .option('--max-budget <usd>', 'Max API spend')
   .option('--system-prompt <prompt>', 'Replace system prompt')
@@ -99,6 +100,10 @@ program
   .option('--skip-persistence', 'Disable session persistence')
   .option('--betas <headers>', 'Custom beta headers')
   .option('--enable-agent-teams', 'Enable agent teams')
+  .option('--enable-auto-mode', 'Enable auto permission mode')
+  .option('--resume-session-id <id>', 'Resume existing session by ID')
+  .option('--base-url <url>', 'Custom API endpoint (for proxy)')
+  .option('--add-dir <dirs>', 'Comma-separated additional working directories')
   .action(async (name, opts) => {
     const body: Record<string, unknown> = { name: name || `session-${Date.now()}` };
     if (opts.cwd) body.cwd = opts.cwd;
@@ -107,6 +112,11 @@ program
     if (opts.permissionMode) body.permissionMode = opts.permissionMode;
     if (opts.effort) body.effort = opts.effort;
     if (opts.allowedTools) body.allowedTools = opts.allowedTools.split(',');
+    if (opts.disallowedTools) body.disallowedTools = opts.disallowedTools.split(',');
+    if (opts.resumeSessionId) body.resumeSessionId = opts.resumeSessionId;
+    if (opts.baseUrl) body.baseUrl = opts.baseUrl;
+    if (opts.addDir) body.addDir = opts.addDir.split(',');
+    if (opts.enableAutoMode) body.enableAutoMode = true;
     if (opts.maxTurns) {
       const v = parseInt(opts.maxTurns);
       if (isNaN(v) || v <= 0) {

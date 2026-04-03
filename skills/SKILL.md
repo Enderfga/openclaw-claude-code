@@ -1,7 +1,7 @@
 ---
 name: claude-code-skill
 description: Control Claude Code via MCP protocol. Trigger with "plan" to write a precise execution plan then feed it to Claude Code. Also supports direct commands, persistent sessions, agent teams, and advanced tool control.
-homepage: https://github.com/enderfga/claude-code-skill
+homepage: https://github.com/enderfga/openclaw-claude-code
 metadata: {
   "clawdis": {
     "emoji": "🤖",
@@ -74,26 +74,7 @@ claude-code-skill session-start myproject -d ~/project \
 
 ## 📚 Command Reference
 
-### Basic MCP Operations
-
-```bash
-# Connect to Claude Code MCP
-claude-code-skill connect
-claude-code-skill status
-claude-code-skill tools
-
-# Direct tool calls (no persistent session)
-claude-code-skill bash "npm test"
-claude-code-skill read /path/to/file.ts
-claude-code-skill glob "**/*.ts" -p ~/project
-claude-code-skill grep "TODO" -p ~/project -c
-claude-code-skill call Write -a '{"file_path":"/tmp/test.txt","content":"Hello"}'
-
-# Disconnect
-claude-code-skill disconnect
-```
-
-### Persistent Sessions (Agent Loop)
+### Persistent Sessions
 
 #### Starting Sessions
 
@@ -195,9 +176,7 @@ claude-code-skill session-start myproject -d ~/project --effort high
 claude-code-skill session-send myproject "Analyze this code" --effort high
 
 # Model aliases (built-in: opus, sonnet, haiku, gemini-flash, gemini-pro)
-# Custom aliases via --model-overrides
-claude-code-skill session-start myproject -d ~/project \
-  --model-overrides '{"fast":"gemini-2.0-flash","smart":"claude-opus-4-6"}'
+claude-code-skill session-start myproject -d ~/project --model opus
 ```
 
 #### Context Management
@@ -307,50 +286,43 @@ claude-code-skill session-start fullstack -d ~/project \
 
 ```bash
 # Allow specific tools with patterns
---allowed-tools "Bash(git:*,npm:*),Read,Edit"
+claude-code-skill session-start task -d ~/project \
+  --allowed-tools "Bash(git:*,npm:*),Read,Edit"
 
 # Deny dangerous operations
---disallowed-tools "Bash(rm:*,sudo:*),Write(/etc/*)"
-
-# Limit to specific tool set
---tools "Read,Glob,Grep"
-
-# Disable all tools
---tools ""
+claude-code-skill session-start task -d ~/project \
+  --disallowed-tools "Bash(rm:*,sudo:*),Write(/etc/*)"
 ```
 
 ### System Prompts
 
 ```bash
 # Replace system prompt completely
---system-prompt "You are a Python expert. Always use type hints."
+claude-code-skill session-start task -d ~/project \
+  --system-prompt "You are a Python expert. Always use type hints."
 
 # Append to existing prompt
---append-system-prompt "Always run tests after changes."
+claude-code-skill session-start task -d ~/project \
+  --append-system-prompt "Always run tests after changes."
 ```
 
 ### Multi-Model Support (Proxy)
 
-Use `--base-url` to route requests through a proxy, enabling other models (Gemini, GPT) to power Claude Code:
+Use `--base-url` to route requests through the built-in proxy, enabling other models (Gemini, GPT) to power Claude Code sessions:
 
 ```bash
-# Use Gemini via claude-code-proxy
+# Use Gemini via built-in proxy
 claude-code-skill session-start gemini-task -d ~/project \
+  --engine gemini --model gemini-pro
+
+# Use Codex
+claude-code-skill session-start codex-task -d ~/project \
+  --engine codex --model o4-mini
+
+# Or route through a custom API endpoint
+claude-code-skill session-start custom -d ~/project \
   --base-url http://127.0.0.1:8082 \
-  --model claude-3-5-sonnet-20241022  # Proxy will map to Gemini
-
-# Use GPT via proxy
-claude-code-skill session-start gpt-task -d ~/project \
-  --base-url http://127.0.0.1:8082 \
-  --model claude-3-haiku-20240307  # Proxy will map to GPT
-```
-
-**Note:** Requires `claude-code-proxy` running on port 8082 with proper API keys configured.
-
-```bash
-# Start the proxy
-cd ~/clawd/claude-code-proxy && source .venv/bin/activate
-uvicorn server:app --host 127.0.0.1 --port 8082
+  --model gemini-2.5-flash
 ```
 
 ## 🎓 Best Practices
@@ -392,41 +364,20 @@ claude-code-skill session-grep myproject "error" # Search for errors in session 
 
 # If you need to start over:
 claude-code-skill session-stop myproject
-claude-code-skill session-start myproject -d ~/project --resume <old-session-id>
+claude-code-skill session-start myproject -d ~/project --resume-session-id <old-session-id>
 ```
 
 ## 🏗️ Architecture
 
 ```
-openclaw agent
-    ↓
-claude-code-skill CLI (this tool)
-    ↓ HTTP
-backend-api API (:18795)
-    ↓ MCP
-claude mcp serve (Claude Code)
+openclaw agent / CLI
+    ↓ Plugin tools (27) or HTTP API
+SessionManager (in-process)
+    ↓ child_process.spawn
+Claude Code CLI / Codex CLI / Gemini CLI
     ↓
 Your files & tools
 ```
-
-## 🔌 Available Tools (via MCP)
-
-All Claude Code tools are accessible:
-
-| Tool | Description |
-|------|-------------|
-| Bash | Execute shell commands |
-| Read | Read file contents |
-| Write | Create/overwrite files |
-| Edit | Edit files with string replacement |
-| Glob | Find files by pattern |
-| Grep | Search file contents |
-| Task | Launch sub-agents |
-| WebFetch | Fetch web content |
-| WebSearch | Search the web |
-| Git* | Git operations |
-| AskUserQuestion | Interactive prompts |
-| ... | and 10+ more |
 
 ## 📊 Examples
 
@@ -471,19 +422,21 @@ claude-code-skill session-send debug "We have a memory leak in the API server" -
 
 ## 🔗 Integration with OpenClaw
 
-When openclaw needs to perform complex coding tasks:
+When installed as an OpenClaw plugin, all 27 tools are available directly to agents. For standalone usage:
 
 ```bash
-# From within openclaw agent context:
-openclaw skills run claude-code-skill -- session-start task -d ~/project
-openclaw skills run claude-code-skill -- session-send task "Implement feature X" --stream
-openclaw skills run claude-code-skill -- session-status task
-```
+# Start standalone server (no OpenClaw needed)
+claude-code-skill serve
 
-Or use the skill programmatically via backend-api HTTP API (see TOOLS.md section 3).
+# Then use the CLI commands against the server
+claude-code-skill session-start task -d ~/project
+claude-code-skill session-send task "Implement feature X" --stream
+claude-code-skill session-status task
+```
 
 ## 📖 See Also
 
-- **TOOLS.md section 3** - Full HTTP API documentation
-- **backend-api endpoints** - Backend integration details
-- **Claude Code docs** - Official Claude Code documentation (query via `qmd` tool)
+- [Tools Reference](../docs/tools.md) — complete 27-tool API reference
+- [Council](../docs/council.md) — multi-agent collaboration protocol
+- [Multi-Engine](../docs/multi-engine.md) — Claude Code, Codex, and Gemini engines
+- [Getting Started](../docs/getting-started.md) — setup and installation

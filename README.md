@@ -4,7 +4,7 @@ Programmable bridge that turns coding CLIs into headless, agentic engines — pe
 
 [![npm version](https://img.shields.io/npm/v/@enderfga/openclaw-claude-code.svg)](https://www.npmjs.com/package/@enderfga/openclaw-claude-code)
 [![CI](https://github.com/Enderfga/openclaw-claude-code/actions/workflows/ci.yml/badge.svg)](https://github.com/Enderfga/openclaw-claude-code/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-162%20passed-brightgreen)](https://github.com/Enderfga/openclaw-claude-code/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-229%20passed-brightgreen)](https://github.com/Enderfga/openclaw-claude-code/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
 ## Why This Exists
@@ -82,7 +82,7 @@ See [Council](./docs/council.md) for the full collaboration protocol.
 | Session Operations | `status`, `grep`, `compact`, `update_tools`, `switch_model` |
 | Inbox | `session_send_to`, `session_inbox`, `session_deliver_inbox` |
 | Agent Teams | `agents_list`, `team_list`, `team_send` |
-| Council | `council_start`, `council_status`, `council_abort`, `council_inject` |
+| Council | `council_start`, `council_status`, `council_abort`, `council_inject`, `council_review`, `council_accept`, `council_reject` |
 | Ultraplan | `ultraplan_start`, `ultraplan_status` |
 | Ultrareview | `ultrareview_start`, `ultrareview_status` |
 

@@ -28,7 +28,13 @@ Start a persistent coding session with full CLI flag support.
 | `worktree` | string \| boolean | Run in git worktree |
 | `fallbackModel` | string | Fallback when primary overloaded |
 | `resumeSessionId` | string | Resume existing session by ID |
+| `jsonSchema` | string | JSON Schema for structured output |
+| `mcpConfig` | string \| string[] | MCP server config file(s) |
+| `settings` | string | Settings.json path or inline JSON |
+| `noSessionPersistence` | boolean | Do not save session to disk |
+| `betas` | string \| string[] | Custom beta headers |
 | `enableAgentTeams` | boolean | Enable experimental agent teams |
+| `enableAutoMode` | boolean | Enable auto permission mode |
 
 ### `claude_session_send`
 
@@ -61,7 +67,7 @@ Dashboard view: all sessions with ready/busy/paused state, cost, context %, last
 
 ---
 
-## Session Operations (4)
+## Session Operations (5)
 
 ### `claude_session_status`
 
