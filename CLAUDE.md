@@ -74,7 +74,7 @@ Also update:
 ## PR Guidelines
 
 - Prefix: `feat:`, `fix:`, `docs:`, `chore:`, `test:`
-- Run `npm run build && npm run lint && npm run test` before submitting
+- Run `npm run build && npm run lint && npm run format:check && npm run test` before submitting
 - Update CHANGELOG.md for user-facing changes
 - Plugin installation requires `--dangerously-force-unsafe-install` (child_process usage)
 
@@ -85,7 +85,7 @@ Follow this checklist for every release. Do not skip steps.
 ### 1. Pre-flight
 
 ```bash
-npm run build && npm run lint && npm run test   # Must all pass
+npm run build && npm run lint && npm run format:check && npm run test   # Must all pass
 ```
 
 ### 2. Version bump
