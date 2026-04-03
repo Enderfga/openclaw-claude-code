@@ -9,6 +9,7 @@
 
 import * as http from 'node:http';
 import { SessionManager } from './session-manager.js';
+import { sanitizeCwd, validateRegex } from './validation.js';
 import type { EffortLevel } from './types.js';
 
 const DEFAULT_PORT = 18796;
@@ -71,11 +72,18 @@ export class EmbeddedServer {
     const url = new URL(req.url || '/', `http://localhost:${this.port}`);
     const path = url.pathname;
 
-    // Read body for POST
+    // Read body for POST — require JSON content type (CSRF mitigation)
     if (req.method === 'POST') {
+      const contentType = req.headers['content-type'] || '';
+      if (!contentType.includes('application/json')) {
+        res.writeHead(415, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'Content-Type must be application/json' }));
+        return;
+      }
       let body = '';
       let aborted = false;
       req.on('data', (chunk) => {
+        if (aborted) return;
         body += chunk;
         if (body.length > MAX_BODY_SIZE) {
           aborted = true;
@@ -116,6 +124,7 @@ export class EmbeddedServer {
       // ─── Session Routes ──────────────────────────────────────────
 
       if (path === '/session/start') {
+        if (body.cwd) body.cwd = sanitizeCwd(body.cwd as string);
         const info = await this.manager.startSession(body as Parameters<SessionManager['startSession']>[0]);
         json(200, { ok: true, ...info });
         return;
@@ -149,6 +158,7 @@ export class EmbeddedServer {
       }
 
       if (path === '/session/grep') {
+        validateRegex(body.pattern as string);
         const matches = await this.manager.grepSession(
           body.name as string,
           body.pattern as string,
@@ -254,7 +264,7 @@ export class EmbeddedServer {
       // ─── Health ──────────────────────────────────────────────────
 
       if (path === '/health') {
-        json(200, { ok: true, version: '2.0.0', sessions: this.manager.listSessions().length });
+        json(200, { ok: true, version: this.manager.getVersion(), sessions: this.manager.listSessions().length });
         return;
       }
 

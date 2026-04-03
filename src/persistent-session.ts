@@ -23,17 +23,8 @@ import {
   type TurnResult,
   type CostBreakdown,
   MODEL_ALIASES,
-  MODEL_PRICING,
-  type ModelPricing,
+  getModelPricing,
 } from './types.js';
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function getModelPricing(model?: string): ModelPricing {
-  if (!model) return MODEL_PRICING['claude-sonnet-4-6']!;
-  const key = model.replace(/^anthropic\/|^google\/|^openai\/|^openai-codex\//g, '');
-  return MODEL_PRICING[key] ?? MODEL_PRICING['claude-sonnet-4-6']!;
-}
 
 // ─── Internal Stats ──────────────────────────────────────────────────────────
 

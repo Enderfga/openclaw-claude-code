@@ -9,31 +9,11 @@
  * consumes no memory beyond the tool schema definitions.
  */
 
-import * as path from 'node:path';
 import { SessionManager } from './session-manager.js';
 import { createProxyHandler } from './proxy/handler.js';
 import { EmbeddedServer } from './embedded-server.js';
+import { sanitizeCwd, validateRegex } from './validation.js';
 import type { PluginConfig, EffortLevel, CouncilConfig, AgentPersona } from './types.js';
-
-/** Resolve and validate a working directory path — prevents path traversal */
-function sanitizeCwd(cwd: string | undefined): string | undefined {
-  if (!cwd) return undefined;
-  const resolved = path.resolve(cwd);
-  // Block obvious traversal attempts and system-critical paths
-  if (resolved === '/' || resolved.startsWith('/etc') || resolved.startsWith('/proc') || resolved.startsWith('/sys')) {
-    throw new Error(`Unsafe working directory: ${resolved}`);
-  }
-  return resolved;
-}
-
-/** Validate a regex pattern — prevents ReDoS from malformed input */
-function validateRegex(pattern: string): RegExp {
-  try {
-    return new RegExp(pattern, 'i');
-  } catch (err) {
-    throw new Error(`Invalid regex pattern: ${(err as Error).message}`);
-  }
-}
 
 // ─── Standalone Export ───────────────────────────────────────────────────────
 
@@ -43,6 +23,7 @@ export { PersistentCodexSession } from './persistent-codex-session.js';
 export { PersistentGeminiSession } from './persistent-gemini-session.js';
 export { Council, getDefaultCouncilConfig } from './council.js';
 export { parseConsensus, stripConsensusTags, hasConsensusMarker } from './consensus.js';
+export { sanitizeCwd, validateRegex, validateName } from './validation.js';
 export type { ISession } from './types.js';
 export * from './types.js';
 

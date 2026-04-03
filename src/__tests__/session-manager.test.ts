@@ -1122,4 +1122,42 @@ describe('SessionManager', () => {
       await expect(mgr.councilReject('unknown', 'bad work')).rejects.toThrow("Council 'unknown' not found");
     });
   });
+
+  // ─── Input Validation ─────────────────────────────────────────────────
+
+  describe('input validation', () => {
+    it('createAgent rejects path-traversal names', () => {
+      expect(() => mgr.createAgent('../../etc/evil', '/tmp')).toThrow('Invalid name');
+    });
+
+    it('createAgent rejects names with dots', () => {
+      expect(() => mgr.createAgent('evil.md', '/tmp')).toThrow('Invalid name');
+    });
+
+    it('createSkill rejects path-traversal names', () => {
+      expect(() => mgr.createSkill('../../etc/evil', '/tmp')).toThrow('Invalid name');
+    });
+
+    it('createRule rejects path-traversal names', () => {
+      expect(() => mgr.createRule('../../etc/evil', '/tmp')).toThrow('Invalid name');
+    });
+
+    it('listAgents rejects unsafe cwd', () => {
+      expect(() => mgr.listAgents('/etc')).toThrow('Unsafe working directory');
+    });
+
+    it('listSkills rejects unsafe cwd', () => {
+      expect(() => mgr.listSkills('/etc')).toThrow('Unsafe working directory');
+    });
+
+    it('listRules rejects unsafe cwd', () => {
+      expect(() => mgr.listRules('/etc')).toThrow('Unsafe working directory');
+    });
+
+    it('getVersion returns a version string', () => {
+      const version = mgr.getVersion();
+      expect(typeof version).toBe('string');
+      expect(version.length).toBeGreaterThan(0);
+    });
+  });
 });

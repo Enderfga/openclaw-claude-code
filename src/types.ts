@@ -326,6 +326,16 @@ export function overrideModelPricing(overrides: Record<string, Partial<ModelPric
   }
 }
 
+/**
+ * Look up pricing for a model key. Strips common vendor prefixes before lookup.
+ * Falls back to the provided defaultModel key, or 'claude-sonnet-4-6' if not found.
+ */
+export function getModelPricing(model?: string, defaultModel = 'claude-sonnet-4-6'): ModelPricing {
+  if (!model) return MODEL_PRICING[defaultModel] ?? { input: 0, output: 0 };
+  const key = model.replace(/^anthropic\/|^google\/|^openai\/|^openai-codex\/|^gemini\//g, '');
+  return MODEL_PRICING[key] ?? MODEL_PRICING[defaultModel] ?? { input: 0, output: 0 };
+}
+
 // ─── Model Aliases ───────────────────────────────────────────────────────────
 
 export const MODEL_ALIASES: Record<string, string> = {

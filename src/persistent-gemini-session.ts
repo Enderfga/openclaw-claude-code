@@ -27,22 +27,18 @@ import {
   type TurnResult,
   type CostBreakdown,
   MODEL_ALIASES,
-  MODEL_PRICING,
-  type ModelPricing,
+  getModelPricing as _getModelPricingBase,
 } from './types.js';
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function getModelPricing(model?: string): ModelPricing {
-  if (!model) return MODEL_PRICING['gemini-2.5-pro'] ?? { input: 1.25, output: 10, cached: 0.315 };
-  const key = model.replace(/^google\/|^gemini\//g, '');
-  return MODEL_PRICING[key] ?? MODEL_PRICING['gemini-2.5-pro'] ?? { input: 1.25, output: 10, cached: 0.315 };
+function getModelPricing(model?: string) {
+  return _getModelPricingBase(model, 'gemini-2.5-pro');
 }
 
 // ─── PersistentGeminiSession ────────────────────────────────────────────────
 
 export class PersistentGeminiSession extends EventEmitter implements ISession {
   private options: SessionConfig;
+  private _currentRl: readline.Interface | null = null;
   private geminiBin: string;
   private _isReady = false;
   private _isPaused = false;
@@ -164,6 +160,7 @@ export class PersistentGeminiSession extends EventEmitter implements ISession {
 
       // Parse stream-json output line by line
       const rl = readline.createInterface({ input: proc.stdout!, crlfDelay: Infinity });
+      this._currentRl = rl;
       rl.on('line', (line: string) => {
         if (!line.trim()) return;
         try {
@@ -193,6 +190,10 @@ export class PersistentGeminiSession extends EventEmitter implements ISession {
       proc.on('close', (code) => {
         clearTimeout(timer);
         this.currentProc = null;
+        if (this._currentRl) {
+          this._currentRl.close();
+          this._currentRl = null;
+        }
 
         if (settled) return;
         settled = true;
@@ -375,6 +376,10 @@ export class PersistentGeminiSession extends EventEmitter implements ISession {
   }
 
   stop(): void {
+    if (this._currentRl) {
+      this._currentRl.close();
+      this._currentRl = null;
+    }
     if (this.currentProc) {
       this.currentProc.stdin?.end();
       this.currentProc.stdout?.destroy();

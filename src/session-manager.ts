@@ -67,8 +67,8 @@ function savePersistedSessions(sessions: Map<string, PersistedSession>): void {
     const tmp = PERSIST_FILE + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(arr, null, 2));
     fs.renameSync(tmp, PERSIST_FILE);
-  } catch {
-    // Best-effort: never crash the manager on write failure
+  } catch (err) {
+    console.warn('[SessionManager] Failed to persist sessions:', (err as Error).message);
   }
 }
 
@@ -109,6 +109,7 @@ function makeDebounced(fn: () => void, ms: number): () => void {
   };
 }
 
+import { sanitizeCwd, validateName } from './validation.js';
 import { PersistentClaudeSession } from './persistent-session.js';
 import { PersistentGeminiSession } from './persistent-gemini-session.js';
 import { PersistentCodexSession } from './persistent-codex-session.js';
@@ -518,7 +519,8 @@ export class SessionManager {
   // ─── Agent/Skill/Rule Management ──────────────────────────────────────
 
   listAgents(cwd?: string): AgentInfo[] {
-    const projectDir = path.join(cwd || os.homedir(), '.claude', 'agents');
+    const safeCwd = sanitizeCwd(cwd);
+    const projectDir = path.join(safeCwd || os.homedir(), '.claude', 'agents');
     const globalDir = path.join(os.homedir(), '.claude', 'agents');
     const project = this._listMdFiles(projectDir);
     const global = this._listMdFiles(globalDir);
@@ -527,7 +529,9 @@ export class SessionManager {
   }
 
   createAgent(name: string, cwd?: string, description?: string, prompt?: string): string {
-    const dir = path.join(cwd || os.homedir(), '.claude', 'agents');
+    validateName(name);
+    const safeCwd = sanitizeCwd(cwd);
+    const dir = path.join(safeCwd || os.homedir(), '.claude', 'agents');
     fs.mkdirSync(dir, { recursive: true });
     const filePath = path.join(dir, `${name}.md`);
     const content = `---\ndescription: ${description || name}\n---\n\n${prompt || `You are ${name}.`}\n`;
@@ -536,7 +540,11 @@ export class SessionManager {
   }
 
   listSkills(cwd?: string): SkillInfo[] {
-    const dirs = [path.join(cwd || os.homedir(), '.claude', 'skills'), path.join(os.homedir(), '.claude', 'skills')];
+    const safeCwd = sanitizeCwd(cwd);
+    const dirs = [
+      path.join(safeCwd || os.homedir(), '.claude', 'skills'),
+      path.join(os.homedir(), '.claude', 'skills'),
+    ];
     const all: SkillInfo[] = [];
     const seen = new Set<string>();
     for (const dir of dirs) {
@@ -558,7 +566,9 @@ export class SessionManager {
   }
 
   createSkill(name: string, cwd?: string, opts?: { description?: string; prompt?: string; trigger?: string }): string {
-    const dir = path.join(cwd || os.homedir(), '.claude', 'skills', name);
+    validateName(name);
+    const safeCwd = sanitizeCwd(cwd);
+    const dir = path.join(safeCwd || os.homedir(), '.claude', 'skills', name);
     fs.mkdirSync(dir, { recursive: true });
     const filePath = path.join(dir, 'SKILL.md');
     let content = '---\n';
@@ -570,7 +580,8 @@ export class SessionManager {
   }
 
   listRules(cwd?: string): RuleInfo[] {
-    const dirs = [path.join(cwd || os.homedir(), '.claude', 'rules'), path.join(os.homedir(), '.claude', 'rules')];
+    const safeCwd = sanitizeCwd(cwd);
+    const dirs = [path.join(safeCwd || os.homedir(), '.claude', 'rules'), path.join(os.homedir(), '.claude', 'rules')];
     const all: RuleInfo[] = [];
     const seen = new Set<string>();
     for (const dir of dirs) {
@@ -600,7 +611,9 @@ export class SessionManager {
     cwd?: string,
     opts?: { description?: string; content?: string; paths?: string; condition?: string },
   ): string {
-    const dir = path.join(cwd || os.homedir(), '.claude', 'rules');
+    validateName(name);
+    const safeCwd = sanitizeCwd(cwd);
+    const dir = path.join(safeCwd || os.homedir(), '.claude', 'rules');
     fs.mkdirSync(dir, { recursive: true });
     const filePath = path.join(dir, `${name}.md`);
     let fileContent = '---\n';
@@ -677,6 +690,11 @@ export class SessionManager {
       uptime: process.uptime(),
       details,
     };
+  }
+
+  /** Return plugin version from package.json */
+  getVersion(): string {
+    return getPluginVersion();
   }
 
   // ─── Shutdown ──────────────────────────────────────────────────────────
