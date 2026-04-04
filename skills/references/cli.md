@@ -10,6 +10,10 @@ claude-code-skill serve [-p, --port <port>]
 
 Start standalone embedded server (default port 18796). Set `CLAUDE_CODE_API_URL` to override the base URL.
 
+### Rate Limiting
+
+The embedded server enforces a sliding-window rate limit of 100 requests per minute per IP address. Requests exceeding the limit receive HTTP 429 (Too Many Requests). This prevents accidental runaway scripts from overwhelming the server.
+
 ## Session Management
 
 ### session-start

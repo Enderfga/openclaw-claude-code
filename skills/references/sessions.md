@@ -133,3 +133,30 @@ Built-in format translation lets Claude Code CLI talk to non-Anthropic models:
 - Auto-detect provider from model name patterns
 
 See `src/proxy/` for implementation details.
+
+## Circuit Breaker
+
+SessionManager tracks consecutive failures per engine type. After 3 consecutive start failures for an engine, a circuit breaker opens with exponential backoff (1s × 2^(n-1), capped at 5 minutes). During backoff, new session creation for that engine is rejected with a descriptive error.
+
+- Resets on successful session start
+- State visible in `health()` response under `circuitBreakers`
+- Constants: `CIRCUIT_BREAKER_THRESHOLD` (3), `CIRCUIT_BREAKER_BACKOFF_BASE_MS` (1s), `CIRCUIT_BREAKER_MAX_BACKOFF_MS` (5 min)
+
+## Orphaned Process Cleanup
+
+If the plugin crashes without calling `stop()`, child CLI processes (claude, codex, gemini, agent) may become orphans. SessionManager tracks PIDs in `~/.openclaw/session-pids.json` and cleans up stale processes on startup:
+
+1. Reads PID file from previous run
+2. For each PID, checks if process is alive (`kill -0`)
+3. Verifies the process command line matches a known CLI binary (prevents killing recycled PIDs)
+4. Sends SIGTERM, then SIGKILL after 3 seconds
+5. Clears the PID file
+
+## ISession.pid
+
+All session engine classes expose an optional `pid` readonly property, providing the OS process ID of the underlying CLI subprocess. Returns `undefined` when no process is running.
+
+```typescript
+const session = manager.getSession('my-session');
+console.log(session.pid); // e.g., 12345 or undefined
+```

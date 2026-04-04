@@ -8,6 +8,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { execFileSync } from 'node:child_process';
 import * as http from 'node:http';
 import { createRequire } from 'node:module';
 
@@ -34,7 +35,7 @@ function getPluginVersion(): string {
 
 const PERSIST_DIR = path.join(os.homedir(), '.openclaw');
 const PERSIST_FILE = path.join(PERSIST_DIR, 'claude-sessions.json');
-const PERSIST_DISK_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days on disk
+// PERSIST_DISK_TTL_MS imported from ./constants.js
 
 interface PersistedSession {
   name: string;
@@ -139,6 +140,25 @@ import {
   overrideModelPricing,
 } from './types.js';
 import { Council } from './council.js';
+import {
+  PERSIST_DISK_TTL_MS,
+  DEBOUNCED_SAVE_MS,
+  CLEANUP_INTERVAL_MS,
+  TURN_TIMEOUT_MS,
+  GREP_HISTORY_FETCH,
+  TEAM_LIST_TIMEOUT_MS,
+  TEAM_SEND_TIMEOUT_MS,
+  RESULT_TTL_MS,
+  MAX_INBOX_SIZE,
+  ULTRAPLAN_TIMEOUT_MS,
+  ULTRAREVIEW_POLL_INTERVAL_MS,
+  CIRCUIT_BREAKER_THRESHOLD,
+  CIRCUIT_BREAKER_BACKOFF_BASE_MS,
+  CIRCUIT_BREAKER_MAX_BACKOFF_MS,
+  STOP_SIGKILL_DELAY_MS,
+  SESSION_EVENT,
+  DEFAULT_HISTORY_LIMIT,
+} from './constants.js';
 
 // ─── Internal Types ──────────────────────────────────────────────────────────
 
@@ -171,6 +191,8 @@ export class SessionManager {
   private _debouncedSave: () => void;
   private _proxyServer: http.Server | null = null;
   private _proxyPort: number | null = null;
+  private _activePids = new Map<string, number>();
+  private _engineBreakers = new Map<string, { count: number; lastFailure: number; backoffUntil: number }>();
 
   constructor(config?: Partial<PluginConfig>) {
     this.pluginConfig = {
@@ -189,11 +211,13 @@ export class SessionManager {
 
     // Load persisted session registry from disk
     this.persistedSessions = loadPersistedSessions();
+    // Clean up orphaned child processes from a previous unclean exit
+    this._cleanupOrphanedPids();
     // Debounced async writer — at most one write per 5 seconds on hot paths
-    this._debouncedSave = makeDebounced(() => savePersistedSessionsAsync(this.persistedSessions), 5000);
+    this._debouncedSave = makeDebounced(() => savePersistedSessionsAsync(this.persistedSessions), DEBOUNCED_SAVE_MS);
 
     // Start TTL cleanup timer
-    this.cleanupTimer = setInterval(() => this._cleanupIdleSessions(), 60_000);
+    this.cleanupTimer = setInterval(() => this._cleanupIdleSessions(), CLEANUP_INTERVAL_MS);
   }
 
   // ─── Session Lifecycle ─────────────────────────────────────────────────
@@ -251,6 +275,10 @@ export class SessionManager {
     // Starts a local proxy server that converts Anthropic → OpenAI format
     // and forwards to the OpenClaw gateway. Zero config required.
     const engine: EngineType = fullConfig.engine || 'claude';
+
+    // Circuit breaker — reject early if engine is in backoff
+    this._checkCircuitBreaker(engine);
+
     if (engine === 'claude' && fullConfig.resolvedModel && !fullConfig.baseUrl) {
       const CLAUDE_PATTERNS = ['sonnet', 'opus', 'haiku', 'claude-', 'anthropic/', '/claude'];
       const isClaudeModel = CLAUDE_PATTERNS.some(
@@ -265,9 +293,23 @@ export class SessionManager {
     }
     const session = this._createSession(engine, fullConfig);
 
-    session.on('log', (...args: unknown[]) => console.log(`[Session:${name}]`, ...args));
+    session.on(SESSION_EVENT.LOG, (...args: unknown[]) => console.log(`[Session:${name}]`, ...args));
 
-    await session.start();
+    try {
+      await session.start();
+    } catch (err) {
+      this._recordEngineFailure(engine);
+      throw err;
+    }
+
+    // Engine started successfully — reset circuit breaker
+    this._resetEngineBreaker(engine);
+
+    // Track child process PID for orphan cleanup
+    if (session.pid) {
+      this._activePids.set(name, session.pid);
+      this._savePids();
+    }
 
     const managed: ManagedSession = {
       session,
@@ -292,7 +334,7 @@ export class SessionManager {
 
     const sendOpts: Record<string, unknown> = {
       waitForComplete: true,
-      timeout: options.timeout || 300_000,
+      timeout: options.timeout || TURN_TIMEOUT_MS,
     };
 
     if (options.effort) sendOpts.effort = options.effort;
@@ -336,6 +378,9 @@ export class SessionManager {
     const managed = this._getSession(name);
     managed.session.stop();
     this.sessions.delete(name);
+    // Remove PID tracking
+    this._activePids.delete(name);
+    this._savePids();
     // Explicit stop = user intent to end session — remove from disk too
     this.persistedSessions.delete(name);
     savePersistedSessions(this.persistedSessions);
@@ -362,10 +407,10 @@ export class SessionManager {
   async grepSession(
     name: string,
     pattern: string,
-    limit = 50,
+    limit = DEFAULT_HISTORY_LIMIT,
   ): Promise<Array<{ time: string; type: string; content: string }>> {
     const managed = this._getSession(name);
-    const history = managed.session.getHistory(500);
+    const history = managed.session.getHistory(GREP_HISTORY_FETCH);
     const regex = new RegExp(pattern, 'i');
     return history
       .filter((ev) => regex.test(JSON.stringify(ev)))
@@ -652,7 +697,7 @@ export class SessionManager {
 
     // Claude: use native /team command
     if (engine === 'claude') {
-      const result = await managed.session.send('/team', { waitForComplete: true, timeout: 30_000 });
+      const result = await managed.session.send('/team', { waitForComplete: true, timeout: TEAM_LIST_TIMEOUT_MS });
       return 'text' in result ? result.text : '';
     }
 
@@ -677,7 +722,10 @@ export class SessionManager {
     // Claude: use native @teammate command
     if (engine === 'claude') {
       managed.lastActivity = Date.now();
-      const result = await managed.session.send(`@${teammate} ${message}`, { waitForComplete: true, timeout: 120_000 });
+      const result = await managed.session.send(`@${teammate} ${message}`, {
+        waitForComplete: true,
+        timeout: TEAM_SEND_TIMEOUT_MS,
+      });
       return {
         output: 'text' in result ? result.text : '',
         sessionId: managed.claudeSessionId,
@@ -722,6 +770,7 @@ export class SessionManager {
       contextPercent: number;
       lastActivity: string | null;
     }>;
+    circuitBreakers: Record<string, { failures: number; backoffUntil: string | null }>;
   } {
     const details = Array.from(this.sessions.entries()).map(([name, managed]) => {
       const stats = managed.session.getStats();
@@ -744,6 +793,15 @@ export class SessionManager {
       sessionNames: Array.from(this.sessions.keys()),
       uptime: process.uptime(),
       details,
+      circuitBreakers: Object.fromEntries(
+        [...this._engineBreakers].map(([engine, state]) => [
+          engine,
+          {
+            failures: state.count,
+            backoffUntil: state.backoffUntil > Date.now() ? new Date(state.backoffUntil).toISOString() : null,
+          },
+        ]),
+      ),
     };
   }
 
@@ -780,6 +838,9 @@ export class SessionManager {
       console.log(`[SessionManager] Stopped session: ${name}`);
     }
     this.sessions.clear();
+    // Clear PID tracking
+    this._activePids.clear();
+    this._savePids();
     // Stop proxy server
     if (this._proxyServer) {
       this._proxyServer.close();
@@ -909,6 +970,126 @@ export class SessionManager {
     this._debouncedSave();
   }
 
+  // ─── PID Tracking ──────────────────────────────────────────────────────
+
+  private static PID_FILE = path.join(os.homedir(), '.openclaw', 'session-pids.json');
+
+  private _savePids(): void {
+    try {
+      const dir = path.dirname(SessionManager.PID_FILE);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(SessionManager.PID_FILE, JSON.stringify(Object.fromEntries(this._activePids)));
+    } catch {
+      /* best effort */
+    }
+  }
+
+  /**
+   * Verify that a PID belongs to a known coding CLI before killing it.
+   * Prevents killing unrelated processes if the OS recycled the PID.
+   */
+  private _isKnownCliProcess(pid: number): boolean {
+    // Match known CLI binaries by basename to avoid false positives
+    // (e.g., 'agent' must not match 'ssh-agent' or 'gpg-agent')
+    const knownPatterns = [
+      /\bclaude\b/, // claude CLI
+      /\bcodex\b/, // codex CLI
+      /\bgemini\b/, // gemini CLI
+      /\bcursor-agent\b/, // cursor-agent CLI
+      /(?:^|\/)agent\s/, // 'agent' as standalone command (not ssh-agent etc.)
+    ];
+    try {
+      const cmd = execFileSync('ps', ['-p', String(pid), '-o', 'command='], {
+        encoding: 'utf8',
+        timeout: 3_000,
+      }).trim();
+      return knownPatterns.some((pattern) => pattern.test(cmd));
+    } catch {
+      return false; // ps failed — process likely dead or not accessible
+    }
+  }
+
+  private _cleanupOrphanedPids(): void {
+    try {
+      if (!fs.existsSync(SessionManager.PID_FILE)) return;
+      const data = JSON.parse(fs.readFileSync(SessionManager.PID_FILE, 'utf8')) as Record<string, number>;
+      for (const [name, pid] of Object.entries(data)) {
+        try {
+          process.kill(pid, 0); // check if alive
+          // Alive — but verify it's actually a coding CLI, not a recycled PID
+          if (!this._isKnownCliProcess(pid)) {
+            console.log(`[SessionManager] PID ${pid} (session: ${name}) is alive but not a known CLI — skipping kill`);
+            continue;
+          }
+          console.log(`[SessionManager] Killing orphaned process ${pid} (session: ${name})`);
+          // Graceful shutdown: SIGTERM first
+          try {
+            process.kill(-pid, 'SIGTERM');
+          } catch {
+            /* group kill failed */
+          }
+          try {
+            process.kill(pid, 'SIGTERM');
+          } catch {
+            /* individual kill failed */
+          }
+          // Give process time to shut down, then SIGKILL
+          setTimeout(() => {
+            try {
+              process.kill(pid, 0);
+              process.kill(-pid, 'SIGKILL');
+            } catch {
+              /* already dead or group kill failed */
+            }
+            try {
+              process.kill(pid, 0);
+              process.kill(pid, 'SIGKILL');
+            } catch {
+              /* already dead */
+            }
+          }, STOP_SIGKILL_DELAY_MS);
+        } catch {
+          // Process already dead — nothing to do
+        }
+      }
+    } catch {
+      /* file doesn't exist or parse error */
+    }
+    // Clear the PID file
+    this._savePids();
+  }
+
+  // ─── Circuit Breaker ──────────────────────────────────────────────────
+
+  private _checkCircuitBreaker(engine: string): void {
+    const breaker = this._engineBreakers.get(engine);
+    if (!breaker) return;
+    if (breaker.count >= CIRCUIT_BREAKER_THRESHOLD && Date.now() < breaker.backoffUntil) {
+      const remaining = Math.ceil((breaker.backoffUntil - Date.now()) / 1000);
+      throw new Error(
+        `Engine '${engine}' circuit breaker open after ${breaker.count} consecutive failures. ` +
+          `Retry in ${remaining}s.`,
+      );
+    }
+    // If backoff has expired, allow the attempt (will reset on success)
+  }
+
+  private _recordEngineFailure(engine: string): void {
+    const existing = this._engineBreakers.get(engine) || { count: 0, lastFailure: 0, backoffUntil: 0 };
+    existing.count++;
+    existing.lastFailure = Date.now();
+    const backoff = Math.min(
+      CIRCUIT_BREAKER_BACKOFF_BASE_MS * Math.pow(2, existing.count - 1),
+      CIRCUIT_BREAKER_MAX_BACKOFF_MS,
+    );
+    existing.backoffUntil = Date.now() + backoff;
+    this._engineBreakers.set(engine, existing);
+  }
+
+  private _resetEngineBreaker(engine: string): void {
+    this._engineBreakers.delete(engine);
+  }
+
   private _getSession(name: string): ManagedSession {
     const managed = this.sessions.get(name);
     if (!managed) throw new Error(`Session '${name}' not found`);
@@ -963,7 +1144,6 @@ export class SessionManager {
   // ─── Council ──────────────────────────────────────────────────────────
 
   private councils = new Map<string, Council>();
-  private static COUNCIL_RESULT_TTL_MS = 30 * 60 * 1000; // keep completed councils queryable for 30 min
   private councilCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   councilStart(task: string, config: CouncilConfig): CouncilSession {
@@ -996,7 +1176,7 @@ export class SessionManager {
     const timer = setTimeout(() => {
       this.councils.delete(id);
       this.councilCleanupTimers.delete(id);
-    }, SessionManager.COUNCIL_RESULT_TTL_MS);
+    }, RESULT_TTL_MS);
     this.councilCleanupTimers.set(id, timer);
   }
 
@@ -1045,8 +1225,6 @@ export class SessionManager {
   // ─── Inbox (cross-session messaging) ────────────────────────────────
 
   private inboxes = new Map<string, InboxMessage[]>();
-  private static MAX_INBOX_SIZE = 200;
-
   private static _escapeXmlAttr(s: string): string {
     return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
@@ -1117,7 +1295,7 @@ export class SessionManager {
     // Queue in inbox (with size cap — drop oldest read messages first)
     if (!this.inboxes.has(sessionName)) this.inboxes.set(sessionName, []);
     const inbox = this.inboxes.get(sessionName)!;
-    if (inbox.length >= SessionManager.MAX_INBOX_SIZE) {
+    if (inbox.length >= MAX_INBOX_SIZE) {
       const readIdx = inbox.findIndex((m) => m.read);
       if (readIdx >= 0) inbox.splice(readIdx, 1);
       else inbox.shift(); // drop oldest unread as last resort
@@ -1152,13 +1330,10 @@ export class SessionManager {
   // ─── Ultraplan ────────────────────────────────────────────────────────
 
   private ultraplans = new Map<string, UltraplanResult>();
-  private static ULTRAPLAN_TIMEOUT_MS = 30 * 60 * 1000; // 30 min
-  private static ULTRAPLAN_RESULT_TTL_MS = 30 * 60 * 1000;
-
   ultraplanStart(task: string, opts?: { model?: string; cwd?: string; timeout?: number }): UltraplanResult {
     const id = `ultraplan-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const sessionName = `ultraplan-${id}`;
-    const timeout = opts?.timeout || SessionManager.ULTRAPLAN_TIMEOUT_MS;
+    const timeout = opts?.timeout || ULTRAPLAN_TIMEOUT_MS;
 
     const result: UltraplanResult = {
       id,
@@ -1180,7 +1355,7 @@ export class SessionManager {
         this.stopSession(sessionName).catch((err) => {
           console.error(`[SessionManager] Failed to stop ultraplan session '${sessionName}':`, err);
         });
-        setTimeout(() => this.ultraplans.delete(id), SessionManager.ULTRAPLAN_RESULT_TTL_MS);
+        setTimeout(() => this.ultraplans.delete(id), RESULT_TTL_MS);
       });
 
     return result;
@@ -1235,8 +1410,6 @@ export class SessionManager {
 
   private ultrareviews = new Map<string, UltrareviewResult>();
   private ultrareviewPollers = new Map<string, ReturnType<typeof setInterval>>();
-  private static ULTRAREVIEW_RESULT_TTL_MS = 30 * 60 * 1000;
-
   ultrareviewStart(
     cwd: string,
     opts?: { agentCount?: number; maxDurationMinutes?: number; model?: string; focus?: string },
@@ -1417,13 +1590,13 @@ export class SessionManager {
           result.findings = status.responses.map((r) => `## ${r.agent}\n\n${r.content}`).join('\n\n---\n\n');
         }
 
-        setTimeout(() => this.ultrareviews.delete(id), SessionManager.ULTRAREVIEW_RESULT_TTL_MS);
+        setTimeout(() => this.ultrareviews.delete(id), RESULT_TTL_MS);
       } catch {
         // Council may have been cleaned up; stop polling
         clearInterval(pollInterval);
         this.ultrareviewPollers.delete(id);
       }
-    }, 5000);
+    }, ULTRAREVIEW_POLL_INTERVAL_MS);
     this.ultrareviewPollers.set(id, pollInterval);
 
     return result;

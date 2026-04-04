@@ -30,6 +30,8 @@ import {
   getModelPricing as _getModelPricingBase,
 } from './types.js';
 
+import { MAX_HISTORY_ITEMS, DEFAULT_HISTORY_LIMIT, SESSION_EVENT } from './constants.js';
+
 function getModelPricing(model?: string) {
   return _getModelPricingBase(model, 'gemini-2.5-pro');
 }
@@ -69,6 +71,10 @@ export class PersistentGeminiSession extends EventEmitter implements ISession {
     };
   }
 
+  get pid(): number | undefined {
+    return this.currentProc?.pid ?? undefined;
+  }
+
   get isReady(): boolean {
     return this._isReady;
   }
@@ -93,8 +99,8 @@ export class PersistentGeminiSession extends EventEmitter implements ISession {
     this.sessionId = `gemini-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     this._startTime = new Date().toISOString();
     this._isReady = true;
-    this.emit('ready');
-    this.emit('init', { type: 'system', subtype: 'init', session_id: this.sessionId });
+    this.emit(SESSION_EVENT.READY);
+    this.emit(SESSION_EVENT.INIT, { type: 'system', subtype: 'init', session_id: this.sessionId });
     return this;
   }
 
@@ -110,7 +116,7 @@ export class PersistentGeminiSession extends EventEmitter implements ISession {
     const textMessage = typeof message === 'string' ? message : JSON.stringify(message);
 
     if (!options.waitForComplete) {
-      this._runGemini(textMessage, options).catch((err) => this.emit('error', err));
+      this._runGemini(textMessage, options).catch((err) => this.emit(SESSION_EVENT.ERROR, err));
       return { requestId, sent: true };
     }
 
@@ -174,7 +180,7 @@ export class PersistentGeminiSession extends EventEmitter implements ISession {
           try {
             options.callbacks?.onText?.(line + '\n');
           } catch {}
-          this.emit('text', line + '\n');
+          this.emit(SESSION_EVENT.TEXT, line + '\n');
         }
       });
 
@@ -184,7 +190,7 @@ export class PersistentGeminiSession extends EventEmitter implements ISession {
           .replace(/GEMINI_API_KEY=[^\s]+/g, 'GEMINI_API_KEY=***')
           .replace(/Bearer [a-zA-Z0-9_-]+/g, 'Bearer ***');
         stderr += sanitized;
-        this.emit('log', `[gemini-stderr] ${sanitized}`);
+        this.emit(SESSION_EVENT.LOG, `[gemini-stderr] ${sanitized}`);
       });
 
       proc.on('close', (code) => {
@@ -210,7 +216,7 @@ export class PersistentGeminiSession extends EventEmitter implements ISession {
         }
 
         this._history.push({ time: now, type: 'result', event: { text: resultText.value, code } });
-        if (this._history.length > 100) this._history.shift();
+        if (this._history.length > MAX_HISTORY_ITEMS) this._history.shift();
 
         // Gemini exit codes: 0=success, 53=turn limit, 1=error, 42=input error
         let stopReason = 'end_turn';
@@ -223,8 +229,8 @@ export class PersistentGeminiSession extends EventEmitter implements ISession {
           stop_reason: stopReason,
         };
 
-        this.emit('result', event);
-        this.emit('turn_complete', event);
+        this.emit(SESSION_EVENT.RESULT, event);
+        this.emit(SESSION_EVENT.TURN_COMPLETE, event);
 
         // Exit code 53 = turn limit — a valid completion, not an error
         if (code !== 0 && code !== 53 && !resultText.value) {
@@ -267,7 +273,7 @@ export class PersistentGeminiSession extends EventEmitter implements ISession {
           try {
             options.callbacks?.onText?.(text);
           } catch {}
-          this.emit('text', text);
+          this.emit(SESSION_EVENT.TEXT, text);
         }
         break;
       }
@@ -277,7 +283,7 @@ export class PersistentGeminiSession extends EventEmitter implements ISession {
         try {
           options.callbacks?.onToolUse?.(event);
         } catch {}
-        this.emit('tool_use', event);
+        this.emit(SESSION_EVENT.TOOL_USE, event);
         break;
 
       case 'tool_result':
@@ -285,7 +291,7 @@ export class PersistentGeminiSession extends EventEmitter implements ISession {
           options.callbacks?.onToolResult?.(event);
         } catch {}
         if (event.is_error) this._stats.toolErrors++;
-        this.emit('tool_result', event);
+        this.emit(SESSION_EVENT.TOOL_RESULT, event);
         break;
 
       case 'result': {
@@ -303,7 +309,7 @@ export class PersistentGeminiSession extends EventEmitter implements ISession {
       }
 
       case 'error':
-        this.emit('log', `[gemini-error] ${event.error || JSON.stringify(event)}`);
+        this.emit(SESSION_EVENT.LOG, `[gemini-error] ${event.error || JSON.stringify(event)}`);
         break;
 
       default:
@@ -332,7 +338,7 @@ export class PersistentGeminiSession extends EventEmitter implements ISession {
     };
   }
 
-  getHistory(limit = 50): Array<{ time: string; type: string; event: unknown }> {
+  getHistory(limit = DEFAULT_HISTORY_LIMIT): Array<{ time: string; type: string; event: unknown }> {
     return this._history.slice(-limit);
   }
 
@@ -374,11 +380,11 @@ export class PersistentGeminiSession extends EventEmitter implements ISession {
 
   pause(): void {
     this._isPaused = true;
-    this.emit('paused', { sessionId: this.sessionId });
+    this.emit(SESSION_EVENT.PAUSED, { sessionId: this.sessionId });
   }
   resume(): void {
     this._isPaused = false;
-    this.emit('resumed', { sessionId: this.sessionId });
+    this.emit(SESSION_EVENT.RESUMED, { sessionId: this.sessionId });
   }
 
   stop(): void {
@@ -397,7 +403,7 @@ export class PersistentGeminiSession extends EventEmitter implements ISession {
     }
     this._isReady = false;
     this._isPaused = false;
-    this.emit('close', 143);
+    this.emit(SESSION_EVENT.CLOSE, 143);
   }
 
   // ─── Private ─────────────────────────────────────────────────────────────

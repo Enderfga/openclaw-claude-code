@@ -64,6 +64,16 @@ Each engine requires its own authentication before use:
 
 The plugin does not manage authentication — it expects each CLI to be ready to run.
 
+### Embedded Server Authentication
+
+The embedded HTTP server (used by CLI and standalone mode) optionally supports bearer token authentication:
+
+| Variable | Purpose |
+|----------|---------|
+| `OPENCLAW_SERVER_TOKEN` | Set to enable bearer token auth. All requests (except `/health`) must include `Authorization: Bearer <token>` |
+
+When set, the token is also written to `~/.openclaw/server-token` for the CLI to read automatically. Default: no auth (localhost binding is the primary security boundary).
+
 ## Configuration
 
 In `~/.openclaw/openclaw.json`:

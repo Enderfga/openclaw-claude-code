@@ -26,6 +26,19 @@ import {
   getModelPricing,
 } from './types.js';
 
+import {
+  CONTEXT_HIGH_THRESHOLD,
+  CONTEXT_WINDOW_SIZE,
+  MAX_HISTORY_ITEMS,
+  DEFAULT_HISTORY_LIMIT,
+  SESSION_READY_TIMEOUT_MS,
+  SESSION_READY_FALLBACK_MS,
+  TURN_TIMEOUT_MS,
+  COMPACT_TIMEOUT_MS,
+  STOP_SIGKILL_DELAY_MS,
+  SESSION_EVENT,
+} from './constants.js';
+
 // ─── Internal Stats ──────────────────────────────────────────────────────────
 
 interface InternalStats {
@@ -80,6 +93,10 @@ export class PersistentClaudeSession extends EventEmitter implements ISession {
       lastActivity: null,
       history: [],
     };
+  }
+
+  get pid(): number | undefined {
+    return this.proc?.pid ?? undefined;
   }
 
   get isReady(): boolean {
@@ -238,7 +255,7 @@ export class PersistentClaudeSession extends EventEmitter implements ISession {
         const event = JSON.parse(line) as StreamEvent;
         this._handleEvent(event);
       } catch {
-        this.emit('log', `[stdout] ${line}`);
+        this.emit(SESSION_EVENT.LOG, `[stdout] ${line}`);
       }
     });
 
@@ -250,27 +267,30 @@ export class PersistentClaudeSession extends EventEmitter implements ISession {
         .replace(/OPENAI_API_KEY=[^\s]+/g, 'OPENAI_API_KEY=***')
         .replace(/GEMINI_API_KEY=[^\s]+/g, 'GEMINI_API_KEY=***')
         .replace(/Bearer [a-zA-Z0-9_-]+/g, 'Bearer ***');
-      this.emit('log', `[stderr] ${sanitized}`);
+      this.emit(SESSION_EVENT.LOG, `[stderr] ${sanitized}`);
     });
 
     this.proc.on('close', (code) => {
       this._isReady = false;
-      this.emit('close', code);
+      this.emit(SESSION_EVENT.CLOSE, code);
     });
 
     this.proc.on('error', (err) => {
-      this.emit('error', err);
+      this.emit(SESSION_EVENT.ERROR, err);
     });
 
     // Wait for ready
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('Timeout waiting for session ready')), 30_000);
+      const timeout = setTimeout(
+        () => reject(new Error('Timeout waiting for session ready')),
+        SESSION_READY_TIMEOUT_MS,
+      );
 
-      this.once('ready', () => {
+      this.once(SESSION_EVENT.READY, () => {
         clearTimeout(timeout);
         resolve(this);
       });
-      this.once('error', (err) => {
+      this.once(SESSION_EVENT.ERROR, (err) => {
         clearTimeout(timeout);
         reject(err);
       });
@@ -282,7 +302,7 @@ export class PersistentClaudeSession extends EventEmitter implements ISession {
           reject(new Error(`Claude process exited prematurely with code ${code}. Session failed to start.`));
         }
       };
-      this.once('close', onCloseBeforeReady);
+      this.once(SESSION_EVENT.CLOSE, onCloseBeforeReady);
 
       // Emit ready on the first `system` init event from the CLI.
       // Fall back to a 2 s timer in case the CLI version doesn't emit one.
@@ -290,26 +310,26 @@ export class PersistentClaudeSession extends EventEmitter implements ISession {
         if (!this._isReady) {
           this._isReady = true;
           // Cleanup the early-close listener since initialization succeeded
-          this.removeListener('close', onCloseBeforeReady);
-          this.emit('ready');
+          this.removeListener(SESSION_EVENT.CLOSE, onCloseBeforeReady);
+          this.emit(SESSION_EVENT.READY);
         }
       };
-      this.once('init', onInit);
+      this.once(SESSION_EVENT.INIT, onInit);
       setTimeout(() => {
-        this.removeListener('init', onInit);
+        this.removeListener(SESSION_EVENT.INIT, onInit);
         // If process already exited, reject instead of falsely marking ready
         if (this.proc?.killed || this.proc?.exitCode !== null) {
           clearTimeout(timeout);
-          this.removeListener('close', onCloseBeforeReady);
+          this.removeListener(SESSION_EVENT.CLOSE, onCloseBeforeReady);
           reject(new Error('Claude CLI process crashed immediately upon startup. Fallback timer aborted.'));
           return;
         }
         if (!this._isReady) {
           this._isReady = true;
-          this.removeListener('close', onCloseBeforeReady);
-          this.emit('ready');
+          this.removeListener(SESSION_EVENT.CLOSE, onCloseBeforeReady);
+          this.emit(SESSION_EVENT.READY);
         }
-      }, 2000);
+      }, SESSION_READY_FALLBACK_MS);
     });
   }
 
@@ -321,16 +341,16 @@ export class PersistentClaudeSession extends EventEmitter implements ISession {
 
     // Track history (keep last 100)
     this.stats.history.push({ time: this.stats.lastActivity, type, event });
-    if (this.stats.history.length > 100) this.stats.history.shift();
+    if (this.stats.history.length > MAX_HISTORY_ITEMS) this.stats.history.shift();
 
     switch (type) {
       case 'system':
         if (event.subtype === 'init') {
           this.sessionId = event.session_id;
           this.stats.startTime = new Date().toISOString();
-          this.emit('init', event);
+          this.emit(SESSION_EVENT.INIT, event);
         }
-        this.emit('system', event);
+        this.emit(SESSION_EVENT.SYSTEM, event);
         break;
 
       case 'stream_event': {
@@ -346,7 +366,7 @@ export class PersistentClaudeSession extends EventEmitter implements ISession {
             try {
               this._streamCallbacks?.onToolUse?.(toolEvent);
             } catch {}
-            this.emit('tool_use', toolEvent);
+            this.emit(SESSION_EVENT.TOOL_USE, toolEvent);
           }
         } else if (innerType === 'content_block_delta') {
           const delta = (inner as Record<string, unknown>).delta as Record<string, unknown> | undefined;
@@ -354,7 +374,7 @@ export class PersistentClaudeSession extends EventEmitter implements ISession {
             try {
               this._streamCallbacks?.onText?.(delta.text as string);
             } catch {}
-            this.emit('text', delta.text);
+            this.emit(SESSION_EVENT.TEXT, delta.text);
           }
         } else if (innerType === 'message_delta') {
           const usage = (inner as Record<string, unknown>).usage as Record<string, number> | undefined;
@@ -365,17 +385,17 @@ export class PersistentClaudeSession extends EventEmitter implements ISession {
             this._updateCost();
           }
         }
-        this.emit('stream_event', event);
+        this.emit(SESSION_EVENT.STREAM_EVENT, event);
         break;
       }
 
       case 'user':
         this.stats.turns++;
-        this.emit('user_echo', event);
+        this.emit(SESSION_EVENT.USER_ECHO, event);
         break;
 
       case 'assistant':
-        this.emit('assistant', event);
+        this.emit(SESSION_EVENT.ASSISTANT, event);
         if (event.message?.content && Array.isArray(event.message.content)) {
           for (const block of event.message.content) {
             if (block.type === 'tool_use') {
@@ -389,7 +409,7 @@ export class PersistentClaudeSession extends EventEmitter implements ISession {
               try {
                 this._streamCallbacks?.onToolUse?.(toolEvent);
               } catch {}
-              this.emit('tool_use', toolEvent);
+              this.emit(SESSION_EVENT.TOOL_USE, toolEvent);
             }
           }
         }
@@ -400,7 +420,7 @@ export class PersistentClaudeSession extends EventEmitter implements ISession {
         try {
           this._streamCallbacks?.onToolUse?.(event);
         } catch {}
-        this.emit('tool_use', event);
+        this.emit(SESSION_EVENT.TOOL_USE, event);
         break;
 
       case 'tool_result':
@@ -414,11 +434,14 @@ export class PersistentClaudeSession extends EventEmitter implements ISession {
             error: (event as Record<string, unknown>).error,
           });
         }
-        this.emit('tool_result', event);
+        this.emit(SESSION_EVENT.TOOL_RESULT, event);
         break;
 
       case 'error':
-        this.emit('error', new Error(String((event as Record<string, unknown>).error) || JSON.stringify(event)));
+        this.emit(
+          SESSION_EVENT.ERROR,
+          new Error(String((event as Record<string, unknown>).error) || JSON.stringify(event)),
+        );
         break;
 
       case 'result': {
@@ -429,8 +452,8 @@ export class PersistentClaudeSession extends EventEmitter implements ISession {
           this.stats.cachedTokens += usage.cache_read_input_tokens || 0;
           this._updateCost();
         }
-        this.emit('result', event);
-        this.emit('turn_complete', event);
+        this.emit(SESSION_EVENT.RESULT, event);
+        this.emit(SESSION_EVENT.TURN_COMPLETE, event);
         this._fireHook('onTurnComplete', {
           text: event.result,
           usage,
@@ -438,9 +461,9 @@ export class PersistentClaudeSession extends EventEmitter implements ISession {
         });
 
         const totalTokens = this.stats.tokensIn + this.stats.tokensOut;
-        if (totalTokens > 140_000 && !this._contextHighFired) {
+        if (totalTokens > CONTEXT_HIGH_THRESHOLD && !this._contextHighFired) {
           this._contextHighFired = true;
-          this._fireHook('onContextHigh', { tokensUsed: totalTokens, threshold: 140_000 });
+          this._fireHook('onContextHigh', { tokensUsed: totalTokens, threshold: CONTEXT_HIGH_THRESHOLD });
         }
         const stopReason = (event as Record<string, unknown>).stop_reason;
         if (stopReason === 'error' || stopReason === 'rate_limit') {
@@ -450,7 +473,7 @@ export class PersistentClaudeSession extends EventEmitter implements ISession {
       }
 
       default:
-        this.emit('event', event);
+        this.emit(SESSION_EVENT.EVENT, event);
     }
   }
 
@@ -489,7 +512,7 @@ export class PersistentClaudeSession extends EventEmitter implements ISession {
     if (options.waitForComplete) {
       this._isBusy = true;
       try {
-        return await this._waitForTurnComplete(options.timeout || 300_000);
+        return await this._waitForTurnComplete(options.timeout || TURN_TIMEOUT_MS);
       } finally {
         this._isBusy = false;
         if (options.callbacks) this._streamCallbacks = null;
@@ -511,7 +534,7 @@ export class PersistentClaudeSession extends EventEmitter implements ISession {
       const onText = (chunk: string) => {
         streamedText += chunk;
       };
-      this.on('text', onText);
+      this.on(SESSION_EVENT.TEXT, onText);
 
       const onAssistant = (event: StreamEvent) => {
         if (event.message?.content && Array.isArray(event.message.content)) {
@@ -520,22 +543,22 @@ export class PersistentClaudeSession extends EventEmitter implements ISession {
           }
         }
       };
-      this.on('assistant', onAssistant);
+      this.on(SESSION_EVENT.ASSISTANT, onAssistant);
 
       const onToolUse = (event: Record<string, unknown>) => {
         const tool = event.tool as Record<string, string> | undefined;
         toolNames.push(tool?.name || (event.name as string) || 'unknown');
       };
-      this.on('tool_use', onToolUse);
+      this.on(SESSION_EVENT.TOOL_USE, onToolUse);
 
       const cleanup = () => {
         clearTimeout(timer);
-        this.removeListener('text', onText);
-        this.removeListener('assistant', onAssistant);
-        this.removeListener('tool_use', onToolUse);
-        this.removeListener('turn_complete', onTurnComplete);
-        this.removeListener('error', onError);
-        this.removeListener('close', onClose);
+        this.removeListener(SESSION_EVENT.TEXT, onText);
+        this.removeListener(SESSION_EVENT.ASSISTANT, onAssistant);
+        this.removeListener(SESSION_EVENT.TOOL_USE, onToolUse);
+        this.removeListener(SESSION_EVENT.TURN_COMPLETE, onTurnComplete);
+        this.removeListener(SESSION_EVENT.ERROR, onError);
+        this.removeListener(SESSION_EVENT.CLOSE, onClose);
       };
 
       const timer = setTimeout(() => {
@@ -581,9 +604,9 @@ export class PersistentClaudeSession extends EventEmitter implements ISession {
         });
       };
 
-      this.once('turn_complete', onTurnComplete);
-      this.once('error', onError);
-      this.once('close', onClose);
+      this.once(SESSION_EVENT.TURN_COMPLETE, onTurnComplete);
+      this.once(SESSION_EVENT.ERROR, onError);
+      this.once(SESSION_EVENT.CLOSE, onClose);
     });
   }
 
@@ -605,19 +628,22 @@ export class PersistentClaudeSession extends EventEmitter implements ISession {
       // Claude Code doesn't expose exact context usage via the JSON protocol,
       // so this is a best-effort heuristic. May overcount because cumulative
       // token counts include the full conversation history replayed each turn.
-      contextPercent: Math.min(100, Math.round(((this.stats.tokensIn + this.stats.tokensOut) / 200_000) * 100)),
+      contextPercent: Math.min(
+        100,
+        Math.round(((this.stats.tokensIn + this.stats.tokensOut) / CONTEXT_WINDOW_SIZE) * 100),
+      ),
       sessionId: this.sessionId,
       uptime: this.stats.startTime ? Math.round((Date.now() - new Date(this.stats.startTime).getTime()) / 1000) : 0,
     };
   }
 
-  getHistory(limit = 50): Array<{ time: string; type: string; event: unknown }> {
+  getHistory(limit = DEFAULT_HISTORY_LIMIT): Array<{ time: string; type: string; event: unknown }> {
     return this.stats.history.slice(-limit);
   }
 
   async compact(summary?: string): Promise<TurnResult | { requestId: number; sent: boolean }> {
     const msg = summary ? `/compact ${summary}` : '/compact';
-    return this.send(msg, { waitForComplete: true, timeout: 60_000 });
+    return this.send(msg, { waitForComplete: true, timeout: COMPACT_TIMEOUT_MS });
   }
 
   getEffort(): EffortLevel {
@@ -653,11 +679,11 @@ export class PersistentClaudeSession extends EventEmitter implements ISession {
 
   pause(): void {
     this._isPaused = true;
-    this.emit('paused', { sessionId: this.sessionId });
+    this.emit(SESSION_EVENT.PAUSED, { sessionId: this.sessionId });
   }
   resume(): void {
     this._isPaused = false;
-    this.emit('resumed', { sessionId: this.sessionId });
+    this.emit(SESSION_EVENT.RESUMED, { sessionId: this.sessionId });
   }
 
   stop(): void {
@@ -686,12 +712,12 @@ export class PersistentClaudeSession extends EventEmitter implements ISession {
         try {
           p.kill('SIGKILL');
         } catch {}
-      }, 3000);
+      }, STOP_SIGKILL_DELAY_MS);
       this.proc = null;
     }
     this._isReady = false;
     this._isPaused = false;
-    this.emit('close', 143);
+    this.emit(SESSION_EVENT.CLOSE, 143);
   }
 
   // ─── Private ─────────────────────────────────────────────────────────────

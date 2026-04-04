@@ -164,6 +164,7 @@ Start a multi-agent council. Runs in background, returns session ID immediately.
 | `agentTimeoutMs` | number | | Per-agent timeout (default 1800000) |
 | `maxTurnsPerAgent` | number | | Max tool turns per agent (default 30) |
 | `maxBudgetUsd` | number | | Max API spend per agent |
+| `defaultPermissionMode` | string | | Default permission mode for agents (`acceptEdits`, `bypassPermissions`, etc.). Overridden by agent-level `permissionMode`. Default: `bypassPermissions` |
 
 ### `council_status`
 

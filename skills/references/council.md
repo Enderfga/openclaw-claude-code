@@ -170,6 +170,21 @@ Rewrites `plan.md` with rejection feedback and commits it. All worktrees and bra
 | `maxTurnsPerAgent` | 30 | Max tool turns per agent per round |
 | `maxBudgetUsd` | — | API spend limit per agent |
 
+### defaultPermissionMode
+
+Optional. Sets the default permission mode for council agents when individual agents don't specify one. Defaults to `bypassPermissions`.
+
+```typescript
+manager.councilStart('task', {
+  agents: [...],
+  maxRounds: 10,
+  projectDir: '/project',
+  defaultPermissionMode: 'acceptEdits', // override the bypassPermissions default
+});
+```
+
+Permission priority: agent-level `permissionMode` > `defaultPermissionMode` > `'bypassPermissions'`
+
 ## System Prompt
 
 The council system prompt is loaded from `configs/council-system-prompt.md` and supports hot-editing. It includes 9 charter sections tuned through extensive multi-agent collaboration testing:

@@ -157,6 +157,7 @@ graph TD
 src/
 ├── index.ts                    # Plugin entry — 27 tools + proxy route
 ├── types.ts                    # Shared types, ISession interface, model pricing
+├── constants.ts                # Shared constants (timeouts, limits, thresholds)
 ├── persistent-session.ts       # Claude Code engine (ISession)
 ├── persistent-codex-session.ts # Codex engine (ISession)
 ├── persistent-gemini-session.ts # Gemini engine (ISession)
