@@ -226,15 +226,17 @@ export class SessionManager {
   async startSession(config: Partial<SessionConfig> & { name?: string }): Promise<SessionInfo> {
     const name = config.name || `session-${Date.now()}`;
 
+    // Check pending first — a concurrent caller may have already started creation
+    const pending = this._pendingSessions.get(name);
+    if (pending) return pending;
+
     if (this.sessions.has(name)) {
       const existing = this.sessions.get(name)!;
       return this._toSessionInfo(name, existing);
     }
 
-    // Guard against concurrent creation of the same session name
-    const pending = this._pendingSessions.get(name);
-    if (pending) return pending;
-
+    // Create the promise and register it in _pendingSessions BEFORE any async work,
+    // so concurrent callers arriving between now and completion see the pending entry.
     const promise = this._doStartSession(name, config);
     this._pendingSessions.set(name, promise);
     try {

@@ -58,6 +58,11 @@ export interface OpenAIChatCompletionChunk {
     delta: { role?: string; content?: string };
     finish_reason: string | null;
   }>;
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
 }
 
 // ─── Session Key Resolution ──────────────────────────────────────────────────
@@ -191,14 +196,33 @@ export async function handleChatCompletion(
   headers: http.IncomingHttpHeaders,
   res: http.ServerResponse,
 ): Promise<void> {
-  const request = body as unknown as OpenAIChatCompletionRequest;
-
-  // Validate
-  if (!request.messages || !Array.isArray(request.messages) || request.messages.length === 0) {
+  // Validate before casting
+  if (!body.messages || !Array.isArray(body.messages) || body.messages.length === 0) {
     res.writeHead(400, { 'Content-Type': 'application/json' });
     res.end(
       JSON.stringify({
         error: { message: 'messages is required and must be a non-empty array', type: 'invalid_request_error' },
+      }),
+    );
+    return;
+  }
+
+  // Safe cast: messages validated above, other fields are optional
+  const request: OpenAIChatCompletionRequest = {
+    messages: body.messages as OpenAIChatMessage[],
+    model: body.model as string | undefined,
+    stream: body.stream as boolean | undefined,
+    temperature: body.temperature as number | undefined,
+    max_tokens: body.max_tokens as number | undefined,
+    user: body.user as string | undefined,
+  };
+
+  // Validate max_tokens if provided
+  if (request.max_tokens !== undefined && (typeof request.max_tokens !== 'number' || request.max_tokens <= 0)) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(
+      JSON.stringify({
+        error: { message: 'max_tokens must be a positive number', type: 'invalid_request_error' },
       }),
     );
     return;
@@ -371,7 +395,7 @@ async function handleStreaming(
 
     // Final chunk with finish_reason + usage
     const finalChunk = formatCompletionChunk(completionId, model, {}, 'stop');
-    if (usage) (finalChunk as unknown as Record<string, unknown>).usage = usage;
+    if (usage) finalChunk.usage = usage;
     writeSSE(JSON.stringify(finalChunk));
     writeSSE('[DONE]');
   } catch (err) {

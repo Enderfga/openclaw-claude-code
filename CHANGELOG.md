@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.2] - 2026-04-05
+
+### Fixed
+- **Session creation race condition** — concurrent `startSession()` calls for the same name now check `_pendingSessions` before `sessions.has()`, preventing duplicate session creation
+- **Streaming proxy timeout** — `handleStreamingResponse` now uses `fetchWithRetry` (1 retry) instead of bare `fetch`, preventing indefinite hangs on upstream failures
+- **Swallowed errors in PersistentClaudeSession** — 7 empty `catch {}` blocks now log errors via `SESSION_EVENT.LOG` instead of silently ignoring them; process kill catches distinguish `ESRCH` (expected) from `EPERM` (logged)
+- **Hook errors logged** — `_fireHook` catch block now emits error message instead of swallowing
+- **Unsafe type casts** — removed `as unknown as` double casts in `openai-compat.ts` (body validation before cast, `usage` field added to chunk type) and `persistent-session.ts` (StreamEvent index signature makes direct cast valid)
+- **`max_tokens` validation** — OpenAI-compat endpoint now rejects non-positive `max_tokens` with 400
+
 ## [2.9.1] - 2026-04-05
 
 ### Fixed

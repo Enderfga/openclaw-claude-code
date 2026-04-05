@@ -360,7 +360,9 @@ export class PersistentClaudeSession extends EventEmitter implements ISession {
             const toolEvent = { tool: { name: block.name, input: {} } };
             try {
               this._streamCallbacks?.onToolUse?.(toolEvent);
-            } catch {}
+            } catch (err) {
+              this.emit(SESSION_EVENT.LOG, `[stream callback error] onToolUse: ${(err as Error).message}`);
+            }
             this.emit(SESSION_EVENT.TOOL_USE, toolEvent);
           }
         } else if (innerType === 'content_block_delta') {
@@ -368,7 +370,9 @@ export class PersistentClaudeSession extends EventEmitter implements ISession {
           if (delta?.type === 'text_delta' && delta.text) {
             try {
               this._streamCallbacks?.onText?.(delta.text as string);
-            } catch {}
+            } catch (err) {
+              this.emit(SESSION_EVENT.LOG, `[stream callback error] onText: ${(err as Error).message}`);
+            }
             this.emit(SESSION_EVENT.TEXT, delta.text);
           }
         } else if (innerType === 'message_delta') {
@@ -403,7 +407,9 @@ export class PersistentClaudeSession extends EventEmitter implements ISession {
               };
               try {
                 this._streamCallbacks?.onToolUse?.(toolEvent);
-              } catch {}
+              } catch (err) {
+                this.emit(SESSION_EVENT.LOG, `[stream callback error] onToolUse: ${(err as Error).message}`);
+              }
               this.emit(SESSION_EVENT.TOOL_USE, toolEvent);
             }
           }
@@ -414,14 +420,18 @@ export class PersistentClaudeSession extends EventEmitter implements ISession {
         this.stats.toolCalls++;
         try {
           this._streamCallbacks?.onToolUse?.(event);
-        } catch {}
+        } catch (err) {
+          this.emit(SESSION_EVENT.LOG, `[stream callback error] onToolUse: ${(err as Error).message}`);
+        }
         this.emit(SESSION_EVENT.TOOL_USE, event);
         break;
 
       case 'tool_result':
         try {
           this._streamCallbacks?.onToolResult?.(event);
-        } catch {}
+        } catch (err) {
+          this.emit(SESSION_EVENT.LOG, `[stream callback error] onToolResult: ${(err as Error).message}`);
+        }
         if ((event as Record<string, unknown>).is_error || (event as Record<string, unknown>).error) {
           this.stats.toolErrors++;
           this._fireHook('onToolError', {
@@ -595,7 +605,7 @@ export class PersistentClaudeSession extends EventEmitter implements ISession {
             result: text,
             stop_reason: 'process_exit',
             exit_code: code,
-          } as unknown as StreamEvent,
+          } as StreamEvent,
         });
       };
 
@@ -697,19 +707,30 @@ export class PersistentClaudeSession extends EventEmitter implements ISession {
       this.proc.stderr?.destroy();
       try {
         process.kill(-pid, 'SIGTERM');
-      } catch {
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'ESRCH') {
+          this.emit(SESSION_EVENT.LOG, `[stop] kill(-${pid}, SIGTERM) failed: ${(err as Error).message}`);
+        }
         try {
           this.proc.kill('SIGTERM');
-        } catch {}
+        } catch (innerErr) {
+          if ((innerErr as NodeJS.ErrnoException).code !== 'ESRCH') {
+            this.emit(SESSION_EVENT.LOG, `[stop] proc.kill(SIGTERM) failed: ${(innerErr as Error).message}`);
+          }
+        }
       }
       const p = this.proc;
       setTimeout(() => {
         try {
           process.kill(-pid, 'SIGKILL');
-        } catch {}
+        } catch {
+          /* ESRCH expected — process already gone */
+        }
         try {
           p.kill('SIGKILL');
-        } catch {}
+        } catch {
+          /* ESRCH expected */
+        }
       }, STOP_SIGKILL_DELAY_MS);
       this.proc = null;
     }
@@ -735,7 +756,9 @@ export class PersistentClaudeSession extends EventEmitter implements ISession {
     if (typeof hook === 'function') {
       try {
         (hook as (d: unknown) => void)(data);
-      } catch {}
+      } catch (err) {
+        this.emit(SESSION_EVENT.LOG, `[hook error] ${hookName}: ${(err as Error).message}`);
+      }
     }
     this.emit(`hook:${hookName}`, data);
   }

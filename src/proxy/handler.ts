@@ -346,15 +346,19 @@ async function handleStreamingResponse(
   res: HttpResponse,
   originalModel: string,
 ): Promise<boolean> {
-  const resp = await fetch(apiUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
+  const resp = await fetchWithRetry(
+    apiUrl,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(Object.assign({}, openaiReq as object, { stream: true })),
+      signal: fetchSignal(),
     },
-    body: JSON.stringify(Object.assign({}, openaiReq as object, { stream: true })),
-    signal: fetchSignal(),
-  });
+    1,
+  );
 
   if (!resp.ok) {
     const err = await resp.text();

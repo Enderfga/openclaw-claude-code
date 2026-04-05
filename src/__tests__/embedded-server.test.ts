@@ -247,12 +247,17 @@ describe('EmbeddedServer', () => {
     it('rejects oversized POST bodies', async () => {
       await server.start();
 
-      // 6MB body exceeds MAX_BODY_SIZE (5MB)
+      // 6MB body exceeds MAX_BODY_SIZE (5MB) — server destroys the request mid-write,
+      // so we may get EPIPE on the client side. Both 413 and EPIPE are valid outcomes.
       const largeBody = 'x'.repeat(6 * 1024 * 1024);
-      const res = await rawRequest(port, '/session/start', { body: largeBody });
-
-      expect(res.status).toBe(413);
-      expect((res.body as Record<string, string>).error).toContain('too large');
+      try {
+        const res = await rawRequest(port, '/session/start', { body: largeBody });
+        expect(res.status).toBe(413);
+        expect((res.body as Record<string, string>).error).toContain('too large');
+      } catch (err) {
+        // EPIPE/ECONNRESET is expected — server killed the connection before we finished writing
+        expect((err as NodeJS.ErrnoException).code).toMatch(/EPIPE|ECONNRESET/);
+      }
     });
   });
 
