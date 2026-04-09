@@ -217,7 +217,8 @@ export function resolveEngineAndModel(model: string): { engine: EngineType; mode
   if (model.startsWith('gemini') || model.includes('gemini')) return { engine: 'gemini', model };
   if (model.startsWith('gpt') || model.startsWith('o3') || model.startsWith('o4') || model.startsWith('codex'))
     return { engine: 'codex', model };
-  if (model.startsWith('composer') || model.startsWith('cursor')) return { engine: 'cursor', model };
+  if (model.startsWith('composer') || model.startsWith('cursor') || model === 'auto')
+    return { engine: 'cursor', model };
 
   // 3. Default: claude engine passthrough
   return { engine: 'claude', model };
