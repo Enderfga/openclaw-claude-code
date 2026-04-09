@@ -377,20 +377,7 @@ export async function handleChatCompletion(
 
   const completionId = `chatcmpl-${randomUUID().replace(/-/g, '').slice(0, 29)}`;
 
-  // Force non-streaming for the first turn of a new session. Claude CLI needs
-  // 3-15 seconds to boot and process the system prompt, and many upstream
-  // clients (including the OpenClaw gateway's agent loop, which uses the OpenAI
-  // SDK with default timeouts) will close the streaming connection before the
-  // first content chunk arrives. Non-streaming mode makes the HTTP response
-  // wait until the full response is ready, which is handled correctly by the
-  // SDK's non-streaming path (longer timeout, no SSE parsing).
-  //
-  // Subsequent turns on the same session reuse the already-running CLI process,
-  // so first-token latency drops to <1s and streaming is safe.
-  const forceNonStream = needsCreate;
-  const useStreaming = isStreaming && !forceNonStream;
-
-  if (useStreaming) {
+  if (isStreaming) {
     await handleStreaming(manager, sessionName, resolvedModel, extracted.userMessage, completionId, res);
   } else {
     await handleNonStreaming(manager, sessionName, resolvedModel, extracted.userMessage, completionId, res);
