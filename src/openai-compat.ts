@@ -340,7 +340,7 @@ export async function handleChatCompletion(
       // skipPersistence: tells SessionManager not to write this session to
       // the disk registry, preventing auto-resume of stale sessions.
       // Note: noSessionPersistence (--no-session-persistence) is NOT set
-      // because some CLI forks (e.g. CodeBuddy) don't support this flag.
+      // because some CLI forks don't support this flag.
       skipPersistence: true,
     };
     // Claude Code CLI supports --append-system-prompt natively.
