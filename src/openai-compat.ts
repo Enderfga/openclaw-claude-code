@@ -188,17 +188,32 @@ export function parseToolCallsFromText(text: string): ParsedToolCalls {
     try {
       const parsed = JSON.parse(jsonStr) as unknown;
       const arr = Array.isArray(parsed) ? parsed : [parsed];
-      const calls: OpenAIToolCall[] = arr.map((call: { name: string; arguments?: unknown }) => ({
-        id: `call_${randomUUID().replace(/-/g, '').slice(0, 24)}`,
-        type: 'function' as const,
-        function: {
-          name: call.name,
-          arguments: typeof call.arguments === 'string' ? call.arguments : JSON.stringify(call.arguments ?? {}),
-        },
-      }));
+      const calls: OpenAIToolCall[] = arr.map((call: { name: string; arguments?: unknown }) => {
+        // arguments must be a valid JSON string per OpenAI spec.
+        // If the model outputs a plain string or object, ensure it's valid JSON.
+        let args: string;
+        if (typeof call.arguments === 'string') {
+          // Verify it's valid JSON; if not, wrap as a JSON string value
+          try {
+            JSON.parse(call.arguments);
+            args = call.arguments;
+          } catch {
+            args = JSON.stringify({ input: call.arguments });
+          }
+        } else {
+          args = JSON.stringify(call.arguments ?? {});
+        }
+        return {
+          id: `call_${randomUUID().replace(/-/g, '').slice(0, 24)}`,
+          type: 'function' as const,
+          function: { name: call.name, arguments: args },
+        };
+      });
       return { textContent: combinedText, toolCalls: calls };
     } catch {
-      return { textContent: text, toolCalls: [] };
+      // JSON parse failed — strip <tool_calls> tags to avoid confusing downstream
+      const cleaned = text.replace(/<tool_calls>[\s\S]*?<\/tool_calls>/g, '').trim();
+      return { textContent: cleaned || text, toolCalls: [] };
     }
   }
 
