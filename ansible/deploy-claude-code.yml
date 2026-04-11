@@ -1,0 +1,34 @@
+---
+# Deploy the openclaw-claude-code plugin to the Thornfield fleet.
+#
+# Usage:
+#   # All hosts (default branch: main)
+#   ansible-playbook -i inventory.yml deploy-claude-code.yml
+#
+#   # Single host
+#   ansible-playbook -i inventory.yml deploy-claude-code.yml --limit elliott
+#
+#   # Specific branch
+#   ansible-playbook -i inventory.yml deploy-claude-code.yml -e openclaw_claude_code_branch=feat/council-v2
+#
+#   # Canary then fleet
+#   ansible-playbook -i inventory.yml deploy-claude-code.yml --limit silas -e openclaw_claude_code_branch=feat/council-v2
+#   # ... verify on silas, then:
+#   ansible-playbook -i inventory.yml deploy-claude-code.yml -e openclaw_claude_code_branch=feat/council-v2
+
+- name: Deploy openclaw-claude-code plugin
+  hosts: all
+  gather_facts: true
+
+  pre_tasks:
+    - name: Verify Ubuntu 24.04+
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == "Ubuntu"
+          - ansible_distribution_version is version("24.04", ">=")
+        fail_msg: "This playbook requires Ubuntu 24.04+. Found: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+      tags: [claude-code, preflight]
+
+  roles:
+    - role: openclaw-claude-code
+      tags: [claude-code]

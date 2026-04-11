@@ -1,0 +1,7 @@
+---
+# openclaw-claude-code defaults
+
+openclaw_claude_code_repo: "https://github.com/karmaterminal/openclaw-claude-code.git"
+openclaw_claude_code_branch: "main"
+openclaw_claude_code_dest: "{{ ansible_env.HOME }}/flesh_beast_tmp/openclaw-claude-code"
+openclaw_claude_code_plugin_name: "openclaw-claude-code"

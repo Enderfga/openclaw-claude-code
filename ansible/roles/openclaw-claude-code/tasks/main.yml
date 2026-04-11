@@ -1,0 +1,132 @@
+---
+# openclaw-claude-code — Deploy the Thornfield fork of the openclaw-claude-code plugin
+# Reference: karmaterminal/openclaw-claude-code#1
+
+# ─── Preflight ────────────────────────────────────────────────
+
+- name: Check if claude CLI is available
+  ansible.builtin.command: which claude
+  register: _claude_code_cli_check
+  changed_when: false
+  failed_when: false
+  tags: [claude-code, preflight]
+
+- name: Warn if claude CLI is not found
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: claude CLI not found on {{ inventory_hostname }}.
+      The plugin will be installed but sessions cannot spawn until
+      the CLI is available. Install with: npm install -g @anthropic-ai/claude-code
+  when: _claude_code_cli_check.rc != 0
+  tags: [claude-code, preflight]
+
+- name: Ensure destination parent directory exists
+  ansible.builtin.file:
+    path: "{{ openclaw_claude_code_dest | dirname }}"
+    state: directory
+    mode: "0755"
+  tags: [claude-code]
+
+# ─── Clone / Update ──────────────────────────────────────────
+
+- name: Check if repo already cloned
+  ansible.builtin.stat:
+    path: "{{ openclaw_claude_code_dest }}/.git"
+  register: _claude_code_repo_stat
+  tags: [claude-code]
+
+- name: Clone openclaw-claude-code repo
+  ansible.builtin.git:
+    repo: "{{ openclaw_claude_code_repo }}"
+    dest: "{{ openclaw_claude_code_dest }}"
+    version: "{{ openclaw_claude_code_branch }}"
+    force: true
+  when: not _claude_code_repo_stat.stat.exists
+  tags: [claude-code]
+
+- name: Update existing repo to target branch
+  ansible.builtin.shell: |
+    cd "{{ openclaw_claude_code_dest }}"
+    git fetch origin
+    git checkout "{{ openclaw_claude_code_branch }}"
+    git reset --hard "origin/{{ openclaw_claude_code_branch }}"
+  register: _claude_code_update
+  changed_when: "'HEAD is now at' in _claude_code_update.stdout"
+  when: _claude_code_repo_stat.stat.exists
+  tags: [claude-code]
+
+# ─── Build ────────────────────────────────────────────────────
+
+- name: Remove stale package-lock.json
+  ansible.builtin.file:
+    path: "{{ openclaw_claude_code_dest }}/package-lock.json"
+    state: absent
+  tags: [claude-code, build]
+
+- name: Install dependencies and build
+  ansible.builtin.shell: |
+    export NVM_DIR="{{ ansible_env.HOME }}/.nvm"
+    . "$NVM_DIR/nvm.sh"
+    cd "{{ openclaw_claude_code_dest }}"
+    npm install --no-audit --no-fund 2>&1
+    npm run build 2>&1
+  register: _claude_code_build
+  changed_when: true
+  tags: [claude-code, build]
+
+- name: Verify dist output exists
+  ansible.builtin.stat:
+    path: "{{ openclaw_claude_code_dest }}/dist/index.js"
+  register: _claude_code_dist
+  failed_when: not _claude_code_dist.stat.exists
+  tags: [claude-code, build]
+
+# ─── Register Plugin ─────────────────────────────────────────
+
+- name: Ensure openclaw config file exists
+  ansible.builtin.stat:
+    path: "{{ openclaw_config_file }}"
+  register: _openclaw_config_stat
+  tags: [claude-code, config]
+
+- name: Create minimal openclaw.json if missing
+  ansible.builtin.copy:
+    dest: "{{ openclaw_config_file }}"
+    content: "{}\n"
+    mode: "0644"
+    force: false
+  when: not _openclaw_config_stat.stat.exists
+  tags: [claude-code, config]
+
+- name: Register plugin in openclaw.json
+  ansible.builtin.script:
+    cmd: >-
+      {{ role_path }}/files/register-plugin.py
+      {{ openclaw_config_file }}
+      {{ openclaw_claude_code_plugin_name }}
+      {{ openclaw_claude_code_dest }}
+  register: _claude_code_register
+  changed_when: "'changed' in _claude_code_register.stdout"
+  tags: [claude-code, config]
+
+# ─── Report ──────────────────────────────────────────────────
+
+- name: Capture deployed commit
+  ansible.builtin.command:
+    cmd: git -C "{{ openclaw_claude_code_dest }}" log --oneline -1
+  register: _claude_code_commit
+  changed_when: false
+  tags: [claude-code]
+
+- name: Deployment summary
+  ansible.builtin.debug:
+    msg: |
+      openclaw-claude-code deployed on {{ inventory_hostname }}
+        repo:    {{ openclaw_claude_code_repo }}
+        branch:  {{ openclaw_claude_code_branch }}
+        commit:  {{ _claude_code_commit.stdout }}
+        path:    {{ openclaw_claude_code_dest }}
+        claude:  {{ 'available' if _claude_code_cli_check.rc == 0 else 'NOT FOUND' }}
+        config:  {{ openclaw_config_file }}
+        NOTE:    Gateway NOT restarted — prince controls that step
+  tags: [claude-code]
