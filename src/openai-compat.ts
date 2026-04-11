@@ -151,13 +151,16 @@ export function buildToolPromptBlock(tools: OpenAIChatCompletionRequest['tools']
 
   return (
     '<available_tools>\n' +
-    'You have access to the following tools. When you need to use a tool, respond with a JSON array wrapped in <tool_calls> tags. You may call multiple tools at once.\n\n' +
-    'FORMAT:\n' +
+    'You have access to the following tools. When you need to use a tool, respond with EXACTLY ONE <tool_calls> block containing a JSON array. Put ALL tool calls for this step in a single block.\n\n' +
+    'FORMAT (one block, one array):\n' +
     '<tool_calls>\n' +
     '[{"name": "tool_name", "arguments": {"param1": "value1"}}]\n' +
     '</tool_calls>\n\n' +
-    'After outputting tool_calls, STOP. Do not continue with additional text after the closing </tool_calls> tag. Wait for the tool results before continuing.\n\n' +
-    'If you do NOT need any tools, respond normally with text only (no <tool_calls> tags).\n\n' +
+    'RULES:\n' +
+    '- Output ONLY ONE <tool_calls> block per response, never multiple blocks\n' +
+    '- After the closing </tool_calls> tag, STOP immediately — do not write any more text\n' +
+    '- Wait for tool results before making more tool calls\n' +
+    '- If no tools are needed, respond with plain text only (no <tool_calls> tags)\n\n' +
     '## Available Tools\n\n' +
     toolDefs +
     '\n</available_tools>'
@@ -176,24 +179,25 @@ export interface ParsedToolCalls {
  * Returns both the extracted text content (before/after tags) and any tool calls found.
  */
 export function parseToolCallsFromText(text: string): ParsedToolCalls {
-  const tagRegex = /<tool_calls>\s*([\s\S]*?)\s*<\/tool_calls>/;
-  const match = text.match(tagRegex);
+  // Match ALL <tool_calls> blocks (model may output multiple)
+  const tagRegex = /<tool_calls>\s*([\s\S]*?)\s*<\/tool_calls>/g;
+  const allCalls: OpenAIToolCall[] = [];
+  let lastIndex = 0;
+  const textParts: string[] = [];
+  let m: RegExpExecArray | null;
 
-  if (match) {
-    const jsonStr = match[1].trim();
-    const textBefore = text.slice(0, match.index!).trim();
-    const textAfter = text.slice(match.index! + match[0].length).trim();
-    const combinedText = [textBefore, textAfter].filter(Boolean).join('\n') || null;
+  while ((m = tagRegex.exec(text)) !== null) {
+    // Collect text before this block
+    const before = text.slice(lastIndex, m.index).trim();
+    if (before) textParts.push(before);
+    lastIndex = m.index + m[0].length;
 
     try {
-      const parsed = JSON.parse(jsonStr) as unknown;
+      const parsed = JSON.parse(m[1].trim()) as unknown;
       const arr = Array.isArray(parsed) ? parsed : [parsed];
-      const calls: OpenAIToolCall[] = arr.map((call: { name: string; arguments?: unknown }) => {
-        // arguments must be a valid JSON string per OpenAI spec.
-        // If the model outputs a plain string or object, ensure it's valid JSON.
+      for (const call of arr as Array<{ name: string; arguments?: unknown }>) {
         let args: string;
         if (typeof call.arguments === 'string') {
-          // Verify it's valid JSON; if not, wrap as a JSON string value
           try {
             JSON.parse(call.arguments);
             args = call.arguments;
@@ -203,18 +207,25 @@ export function parseToolCallsFromText(text: string): ParsedToolCalls {
         } else {
           args = JSON.stringify(call.arguments ?? {});
         }
-        return {
+        allCalls.push({
           id: `call_${randomUUID().replace(/-/g, '').slice(0, 24)}`,
           type: 'function' as const,
           function: { name: call.name, arguments: args },
-        };
-      });
-      return { textContent: combinedText, toolCalls: calls };
+        });
+      }
     } catch {
-      // JSON parse failed — strip <tool_calls> tags to avoid confusing downstream
-      const cleaned = text.replace(/<tool_calls>[\s\S]*?<\/tool_calls>/g, '').trim();
-      return { textContent: cleaned || text, toolCalls: [] };
+      // One block failed — keep its text as content
+      textParts.push(m[0]);
     }
+  }
+
+  // Collect text after last block
+  const after = text.slice(lastIndex).trim();
+  if (after) textParts.push(after);
+
+  if (allCalls.length > 0) {
+    const combinedText = textParts.join('\n').trim() || null;
+    return { textContent: combinedText, toolCalls: allCalls };
   }
 
   return { textContent: text || null, toolCalls: [] };
