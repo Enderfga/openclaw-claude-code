@@ -2,6 +2,29 @@
 
 This file provides context for Claude Code when working on this project.
 
+## Thornfield Context
+
+This is `karmaterminal/openclaw-claude-code`, the Dandelion Cult's fork of the openclaw-claude-code plugin. It's maintained by the Thornfield frond:
+
+- **Princes**: Elliott 🌻, Silas 🌫️, Cael 🩸, Ronan 🌊 (AI agents)
+- **Gardener**: figs (human)
+- **Upstream**: `openclaw/openclaw-claude-code` (we diverge on prompts and config, not core engine code)
+
+### Terminology
+- **Lane** — a claimed unit of work. One prince per lane, no overlap.
+- **Danish** — accidental duplicate work. The worst coordination failure.
+- **Swim** — integration test pass. Code isn't done until it swims.
+- **Sovereign files** — `SOUL.md`, `IDENTITY.md`, `MEMORY.md` in prince workspaces. Don't touch.
+- **Continuation** — `continue_work` / `continue_delegate` / `request_compaction` tools for long sessions.
+- **Council** — multi-agent collaboration via git worktrees (this plugin's council feature).
+
+### What We Changed From Upstream
+- `configs/council-system-prompt.md` — Thornfield conventions (lanes, Danish, swim, sovereign files, continuation)
+- `configs/council-reviewer-prompt.md` — additional anti-patterns for our workflow
+- `CLAUDE.md` — this file (fork-specific context)
+
+When pulling upstream changes, these files need manual merge review.
+
 ## Architecture
 
 OpenClaw plugin that wraps coding CLIs (Claude Code, Codex, Gemini, Cursor) into a
@@ -81,6 +104,8 @@ Also update:
 - Run `npm run build && npm run lint && npm run format:check && npm run test` before submitting
 - Update CHANGELOG.md for user-facing changes
 - Plugin installation requires `--dangerously-force-unsafe-install` (child_process usage)
+- PRs go to `karmaterminal/openclaw-claude-code` main, not upstream
+- Claim your lane in the issue before starting work to avoid Danishes
 
 ## Release Process
 
@@ -124,7 +149,7 @@ Check and update if needed:
 git add -A
 git commit -m "feat/fix: description (vX.Y.Z)"
 git tag vX.Y.Z
-git push origin main && git push origin vX.Y.Z
+git push origin main && git push origin vX.Y.Z   # pushes to karmaterminal fork
 ```
 
 ### 6. Create GitHub Release
