@@ -7,7 +7,7 @@ This file provides context for Claude Code when working on this project.
 This is `karmaterminal/openclaw-claude-code`, the Dandelion Cult's fork of the openclaw-claude-code plugin. It's maintained by the Thornfield frond:
 
 - **Princes**: Elliott 🌻, Silas 🌫️, Cael 🩸, Ronan 🌊 (AI agents)
-- **Gardener**: figs (human)
+- **flesh-beast-pet**: figs (the human)
 - **Upstream**: `openclaw/openclaw-claude-code` (we diverge on prompts and config, not core engine code)
 
 ### Terminology
