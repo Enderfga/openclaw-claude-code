@@ -580,6 +580,13 @@ export async function handleChatCompletion(
   } else {
     await handleNonStreaming(manager, sessionName, resolvedModel, userMessage, completionId, res, hasTools);
   }
+
+  // Clean up ephemeral sessions immediately after response.
+  // When X-Session-Reset is set, each request creates a fresh session that
+  // should not persist — leaving it alive leaks CLI subprocesses until TTL.
+  if (extracted.isNewConversation) {
+    manager.stopSession(sessionName).catch(() => {});
+  }
 }
 
 // ─── Status Reporting ───────────────────────────────────────────────────────
