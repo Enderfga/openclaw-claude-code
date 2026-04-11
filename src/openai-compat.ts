@@ -312,11 +312,13 @@ export function extractUserMessage(
   const systemMessages = messages.filter((m) => m.role === 'system');
   const systemPrompt = systemMessages.length > 0 ? systemMessages.map(textOf).join('\n') : undefined;
 
-  // Handle tool result messages — synthesize user message from tool results
-  const hasToolResults = messages.some((m) => m.role === 'tool');
-  if (hasToolResults) {
+  // Handle tool result messages — only when the LAST non-system message is
+  // a tool role (meaning we're in an active tool-use cycle). If the last
+  // message is a user role, it's a follow-up in an existing conversation
+  // and the old tool results are already in the CLI's history.
+  const lastNonSystem = [...messages].reverse().find((m) => m.role !== 'system');
+  if (lastNonSystem?.role === 'tool') {
     const toolResultBlock = serializeToolResults(messages);
-    // Find last user message after tool results (if any)
     const userMessages = messages.filter((m) => m.role === 'user');
     const lastUserText = userMessages.length > 0 ? textOf(userMessages[userMessages.length - 1]) : '';
     const userMessage = lastUserText ? `${toolResultBlock}\n\n${lastUserText}` : toolResultBlock;
