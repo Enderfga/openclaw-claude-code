@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.12.1] - 2026-04-14
+
+### Fixed
+- **Proxy: configurable Anthropic base URL** — three-layer fallback (`ANTHROPIC_BASE_URL` env var → `~/.openclaw/openclaw.json` providers → official API), enabling MiniMax and other Anthropic-compatible endpoints without patching code
+- **Proxy: removed hardcoded `minimax-portal` provider preference** — now uses first provider with a `baseUrl` from config, making the fallback generic
+- **Proxy: base URL resolution cached** — avoids synchronous filesystem reads on every request
+- **Proxy: config parse errors now logged** — `console.warn` instead of silent swallow
+- **Skill directory** — added `skills/claude-code-skill/` subdirectory symlink for OpenClaw skill loader compatibility
+
+### Changed
+- `skills/claude-code-skill/SKILL.md` is a symlink to `skills/SKILL.md` (single source of truth)
+
 ## [2.12.0] - 2026-04-13
 
 ### Added
