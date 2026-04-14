@@ -23,12 +23,57 @@ import {
 import { injectThoughtSigs } from './thought-cache.js';
 import type { ProxyConfig } from '../types.js';
 import { resolveProvider } from '../models.js';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
 
 import { FETCH_TIMEOUT_MS } from '../constants.js';
 
 /** Create an AbortSignal that fires after the given timeout */
 function fetchSignal(ms = FETCH_TIMEOUT_MS): AbortSignal {
   return AbortSignal.timeout(ms);
+}
+
+// ─── Anthropic Base URL Resolution (3-layer fallback) ────────────────────────
+// Layer 1: ANTHROPIC_BASE_URL env var (Claude Code convention)
+// Layer 2: OpenClaw global config providers[name].baseUrl (cross-platform)
+// Layer 3: Official Anthropic API fallback
+const ANTHROPIC_DEFAULT = 'https://api.anthropic.com';
+
+let _cachedBaseUrl: string | undefined;
+
+function getAnthropicBaseUrl(): string {
+  if (_cachedBaseUrl !== undefined) return _cachedBaseUrl;
+
+  // Layer 1: env var (highest priority — Claude Code convention)
+  if (process.env.ANTHROPIC_BASE_URL) {
+    _cachedBaseUrl = process.env.ANTHROPIC_BASE_URL;
+    return _cachedBaseUrl;
+  }
+
+  // Layer 2: OpenClaw global config (~/.openclaw/openclaw.json)
+  try {
+    const configPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
+    if (fs.existsSync(configPath)) {
+      const raw = fs.readFileSync(configPath, 'utf8');
+      const cfg = JSON.parse(raw) as { providers?: Record<string, { baseUrl?: string }> };
+      const providers = cfg?.providers;
+      if (providers && typeof providers === 'object') {
+        for (const [, p] of Object.entries(providers)) {
+          if (p?.baseUrl) {
+            _cachedBaseUrl = p.baseUrl;
+            return _cachedBaseUrl;
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[proxy] Failed to read OpenClaw config for base URL:', (err as Error).message);
+  }
+
+  // Layer 3: default
+  _cachedBaseUrl = ANTHROPIC_DEFAULT;
+  return _cachedBaseUrl;
 }
 
 // ─── Retry Logic ────────────────────────────────────────────────────────────
@@ -203,8 +248,9 @@ async function forwardToAnthropic(
     signal: fetchSignal(),
   };
 
+  const baseUrl = getAnthropicBaseUrl();
   if (isStream) {
-    const resp = await fetch('https://api.anthropic.com/v1/messages', fetchInit);
+    const resp = await fetch(`${baseUrl}/v1/messages`, fetchInit);
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.flushHeaders?.();
@@ -223,7 +269,7 @@ async function forwardToAnthropic(
     }
     res.end();
   } else {
-    const resp = await fetchWithRetry('https://api.anthropic.com/v1/messages', fetchInit);
+    const resp = await fetchWithRetry(`${baseUrl}/v1/messages`, fetchInit);
     const data = await resp.json();
     res.status(resp.status).json(data);
   }
