@@ -40,9 +40,16 @@ function fetchSignal(ms = FETCH_TIMEOUT_MS): AbortSignal {
 // Layer 3: Official Anthropic API fallback
 const ANTHROPIC_DEFAULT = 'https://api.anthropic.com';
 
+let _cachedBaseUrl: string | undefined;
+
 function getAnthropicBaseUrl(): string {
+  if (_cachedBaseUrl !== undefined) return _cachedBaseUrl;
+
   // Layer 1: env var (highest priority — Claude Code convention)
-  if (process.env.ANTHROPIC_BASE_URL) return process.env.ANTHROPIC_BASE_URL;
+  if (process.env.ANTHROPIC_BASE_URL) {
+    _cachedBaseUrl = process.env.ANTHROPIC_BASE_URL;
+    return _cachedBaseUrl;
+  }
 
   // Layer 2: OpenClaw global config (~/.openclaw/openclaw.json)
   try {
@@ -50,17 +57,23 @@ function getAnthropicBaseUrl(): string {
     if (fs.existsSync(configPath)) {
       const raw = fs.readFileSync(configPath, 'utf8');
       const cfg = JSON.parse(raw) as { providers?: Record<string, { baseUrl?: string }> };
-      const providers = cfg?.providers ?? {};
-      // Prefer minimax-portal, otherwise first provider with a baseUrl
-      if (providers['minimax-portal']?.baseUrl) return providers['minimax-portal'].baseUrl;
-      for (const [, p] of Object.entries(providers)) {
-        if (p?.baseUrl) return p.baseUrl;
+      const providers = cfg?.providers;
+      if (providers && typeof providers === 'object') {
+        for (const [, p] of Object.entries(providers)) {
+          if (p?.baseUrl) {
+            _cachedBaseUrl = p.baseUrl;
+            return _cachedBaseUrl;
+          }
+        }
       }
     }
-  } catch { /* ignore — proceed to fallback */ }
+  } catch (err) {
+    console.warn('[proxy] Failed to read OpenClaw config for base URL:', (err as Error).message);
+  }
 
   // Layer 3: default
-  return ANTHROPIC_DEFAULT;
+  _cachedBaseUrl = ANTHROPIC_DEFAULT;
+  return _cachedBaseUrl;
 }
 
 // ─── Retry Logic ────────────────────────────────────────────────────────────
