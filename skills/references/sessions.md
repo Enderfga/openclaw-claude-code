@@ -152,6 +152,27 @@ If the plugin crashes without calling `stop()`, child CLI processes (claude, cod
 4. Sends SIGTERM, then SIGKILL after 3 seconds
 5. Clears the PID file
 
+## Stats & Monitoring
+
+Session stats are returned by `getStats()` and surfaced through `claude_session_status`. Key fields added in plugin v2.13.0 (Claude CLI 2.1.111):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `retries` | number | Total API retries that occurred during the session |
+| `lastRetryError` | string \| undefined | Error message from the most recent retry (if any) |
+
+### `system/api_retry` events
+
+When Claude Code CLI performs an API retry (transient errors, overload, etc.) it emits a `system` event with subtype `api_retry`. The plugin parses these events and increments `retries` / updates `lastRetryError` in the session stats. These events are also visible in the session event history returned by `claude_session_grep`.
+
+```typescript
+const status = manager.getStatus('my-task');
+console.log(`Retries so far: ${status.stats.retries}`);
+if (status.stats.lastRetryError) {
+  console.log(`Last retry reason: ${status.stats.lastRetryError}`);
+}
+```
+
 ## ISession.pid
 
 All session engine classes expose an optional `pid` readonly property, providing the OS process ID of the underlying CLI subprocess. Returns `undefined` when no process is running.

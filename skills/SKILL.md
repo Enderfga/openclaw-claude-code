@@ -85,6 +85,21 @@ claude_session_stop({ name: "myproject" })
 | `maxBudgetUsd` | Cost limit in USD |
 | `allowedTools` | List of allowed tool names |
 
+### CLI 2.1.111 options
+
+| Parameter | Description |
+|-----------|-------------|
+| `bare` | Minimal mode — no CLAUDE.md, hooks, LSP, auto-memory. Auto-enables prompt cache optimizations (see below). |
+| `includeHookEvents` | Stream hook lifecycle events (PreToolUse/PostToolUse). |
+| `permissionPromptTool` | Delegate permission prompts to an MCP tool for non-interactive use. |
+| `excludeDynamicSystemPromptSections` | Move cwd/env/git from system prompt to user message for better prompt cache hits. Auto-enabled with `bare: true`. |
+| `enablePromptCaching1H` | Enable 1-hour prompt cache TTL (vs default 5-min). Auto-enabled with `bare: true`. |
+| `debug` / `debugFile` | Targeted debug output by category (e.g. `"api,mcp"`) and optional file path. |
+| `fromPr` | Resume a session linked to a GitHub PR number or URL. |
+| `channels` / `dangerouslyLoadDevelopmentChannels` | MCP channel subscriptions (research preview). |
+
+**Smart defaults:** When `bare: true`, the plugin auto-enables `--exclude-dynamic-system-prompt-sections` and `ENABLE_PROMPT_CACHING_1H=1` unless explicitly set to `false`.
+
 ## Multi-Agent Council
 
 Parallel agent collaboration with git worktree isolation and consensus voting. Agents can use different engines.

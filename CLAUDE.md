@@ -157,3 +157,5 @@ Current tested versions (update on each release):
 | Cursor | `agent` | 2026.03.30 | `agent -p <msg> --force --trust --output-format stream-json --workspace <dir>` |
 
 **Important:** When CLI vendors change flags or output format, update the corresponding `persistent-*-session.ts` and re-run integration tests.
+
+See `skills/references/claude-cli-tracking.md` for full sync history.

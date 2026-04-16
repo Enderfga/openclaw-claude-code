@@ -36,6 +36,15 @@ Start a persistent coding session with full CLI flag support.
 | `enableAgentTeams` | boolean | Enable experimental agent teams |
 | `enableAutoMode` | boolean | Enable auto permission mode |
 | `customEngine` | object | Custom engine config (required when `engine='custom'`). See [Multi-Engine: Custom Engine](./multi-engine.md#custom-engine-enginecustom). |
+| `includeHookEvents` | boolean | Stream hook lifecycle events (PreToolUse/PostToolUse) as `system` events |
+| `permissionPromptTool` | string | MCP tool name to delegate permission prompts to (non-interactive use) |
+| `excludeDynamicSystemPromptSections` | boolean | Move cwd/env/git context from system prompt to user message for better prompt cache hits; auto-enabled with `bare: true` |
+| `enablePromptCaching1H` | boolean | Enable 1-hour prompt cache TTL (vs default 5-min); auto-enabled with `bare: true` |
+| `debug` | string | Debug categories to enable (comma-separated, e.g. `"api,mcp"`) |
+| `debugFile` | string | File path to write debug output to |
+| `fromPr` | string \| number | Resume a session linked to a GitHub PR number or URL |
+| `channels` | string \| string[] | MCP channel subscription spec (research preview) |
+| `dangerouslyLoadDevelopmentChannels` | string \| string[] | Development MCP channel subscriptions (research preview) |
 
 ### `claude_session_send`
 
@@ -77,6 +86,13 @@ Detailed status: tokens, cost, context %, tool calls, uptime.
 | Parameter | Type | Required |
 |-----------|------|----------|
 | `name` | string | yes |
+
+**Returned stats fields** (selected):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `retries` | number | Number of API retries that occurred during this session |
+| `lastRetryError` | string \| undefined | Error message from the most recent retry (if any) |
 
 ### `claude_session_grep`
 

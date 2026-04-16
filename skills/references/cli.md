@@ -80,6 +80,15 @@ claude-code-skill session-start [name] [options]
 | `--skip-persistence` | Disable session persistence |
 | `--betas <headers>` | Beta headers (comma-separated) |
 | `--enable-agent-teams` | Enable agent teams |
+| `--include-hook-events` | Stream hook lifecycle events (PreToolUse/PostToolUse) |
+| `--permission-prompt-tool <tool>` | Delegate permission prompts to an MCP tool (non-interactive use) |
+| `--exclude-dynamic-system-prompt-sections` | Move cwd/env/git context to user message for better prompt cache hits (auto-enabled with `--bare`) |
+| `--debug <categories>` | Enable targeted debug output by category (e.g. `"api,mcp"`) |
+| `--debug-file <path>` | Write debug output to file |
+| `--from-pr <n>` | Resume a session linked to a GitHub PR number or URL |
+| `--channels <spec>` | MCP channel subscription (research preview) |
+| `--dangerously-load-development-channels <spec>` | Development MCP channel subscriptions (research preview) |
+| `ENABLE_PROMPT_CACHING_1H=1` (env var) | Enable 1-hour prompt cache TTL (auto-set with `--bare`) |
 
 ### session-send
 

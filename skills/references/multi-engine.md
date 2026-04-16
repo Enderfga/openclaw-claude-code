@@ -22,12 +22,13 @@ SessionManager
 
 ### Claude Code (`engine: 'claude'`)
 
-Default engine. Long-running subprocess with streaming JSON I/O.
+Default engine. Long-running subprocess with streaming JSON I/O. Tested with Claude Code CLI **2.1.111**.
 
 - Persistent multi-turn conversations
-- Real-time streaming (text, tool_use, tool_result events)
+- Real-time streaming (text, tool_use, tool_result, system events)
 - Session resume via `--resume`
 - Full cost tracking from API usage data
+- Hook lifecycle events (`includeHookEvents`), permission delegation (`permissionPromptTool`), prompt cache optimization (`bare` + `excludeDynamicSystemPromptSections` + `enablePromptCaching1H`), debug control, `--from-pr` resume, and MCP channel subscriptions — see [CLI 2.1.111 options in SKILL.md](../SKILL.md) and [tools.md](./tools.md)
 
 ```typescript
 await manager.startSession({
