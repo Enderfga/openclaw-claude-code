@@ -127,6 +127,7 @@ export const SESSION_EVENT = {
   PAUSED: 'paused',
   RESUMED: 'resumed',
   SYSTEM: 'system',
+  API_RETRY: 'api_retry',
   STREAM_EVENT: 'stream_event',
   USER_ECHO: 'user_echo',
   ASSISTANT: 'assistant',

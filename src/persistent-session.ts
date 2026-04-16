@@ -379,6 +379,11 @@ export class PersistentClaudeSession extends EventEmitter implements ISession {
           this.sessionId = event.session_id;
           this.stats.startTime = new Date().toISOString();
           this.emit(SESSION_EVENT.INIT, event);
+        } else if (event.subtype === 'api_retry') {
+          this.stats.retries++;
+          this.stats.lastRetryError =
+            ((event as Record<string, unknown>).error_category as string) ||
+            String((event as Record<string, unknown>).error_status || 'unknown');
         }
         this.emit(SESSION_EVENT.SYSTEM, event);
         break;

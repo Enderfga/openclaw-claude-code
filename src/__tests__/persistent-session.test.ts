@@ -393,6 +393,45 @@ describe('PersistentClaudeSession', () => {
       // MAX_HISTORY_ITEMS is 100, plus the init event = 101, shifted to 100
       expect(session.stats.history.length).toBeLessThanOrEqual(100);
     });
+
+    it('tracks api_retry events and increments stats.retries', () => {
+      const systemEvents: unknown[] = [];
+      session.on(SESSION_EVENT.SYSTEM, (e: unknown) => systemEvents.push(e));
+
+      const event = {
+        type: 'system',
+        subtype: 'api_retry',
+        attempt: 2,
+        max_retries: 5,
+        retry_delay_ms: 2000,
+        error_status: 529,
+        error_category: 'overloaded',
+      };
+      mockProc.stdout.emit('data', Buffer.from(JSON.stringify(event) + '\n'));
+
+      expect(session.stats.retries).toBe(1);
+      expect(session.stats.lastRetryError).toBe('overloaded');
+      expect(systemEvents).toHaveLength(1);
+    });
+
+    it('accumulates retries across multiple api_retry events', () => {
+      const event1 = { type: 'system', subtype: 'api_retry', attempt: 1, error_category: 'overloaded' };
+      const event2 = { type: 'system', subtype: 'api_retry', attempt: 2, error_category: 'rate_limit' };
+      mockProc.stdout.emit('data', Buffer.from(JSON.stringify(event1) + '\n'));
+      mockProc.stdout.emit('data', Buffer.from(JSON.stringify(event2) + '\n'));
+
+      expect(session.stats.retries).toBe(2);
+      expect(session.stats.lastRetryError).toBe('rate_limit');
+    });
+
+    it('includes retries in getStats()', () => {
+      const event = { type: 'system', subtype: 'api_retry', attempt: 1, error_category: 'overloaded' };
+      mockProc.stdout.emit('data', Buffer.from(JSON.stringify(event) + '\n'));
+
+      const stats = session.getStats();
+      expect(stats.retries).toBe(1);
+      expect(stats.lastRetryError).toBe('overloaded');
+    });
   });
 
   describe('_updateCost', () => {
