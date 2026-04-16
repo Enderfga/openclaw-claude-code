@@ -163,6 +163,37 @@ const plugin = {
           betas: { type: ['string', 'array'], items: { type: 'string' }, description: 'Custom beta headers' },
           enableAgentTeams: { type: 'boolean', description: 'Enable experimental agent teams' },
           enableAutoMode: { type: 'boolean', description: 'Enable auto permission mode' },
+          includeHookEvents: { type: 'boolean', description: 'Stream hook lifecycle events (PreToolUse/PostToolUse)' },
+          permissionPromptTool: {
+            type: 'string',
+            description: 'Delegate permission prompts to this MCP tool (non-interactive)',
+          },
+          excludeDynamicSystemPromptSections: {
+            type: 'boolean',
+            description:
+              'Move cwd/env/git from system prompt to user message for better prompt cache hits (auto-enabled with bare)',
+          },
+          debug: {
+            type: ['string', 'array'],
+            items: { type: 'string' },
+            description: 'Debug categories (e.g. "api", "mcp", "!statsig")',
+          },
+          debugFile: { type: 'string', description: 'Write debug output to file instead of stderr' },
+          fromPr: { type: 'string', description: 'Resume session linked to a GitHub PR number or URL' },
+          channels: {
+            type: ['string', 'array'],
+            items: { type: 'string' },
+            description: 'MCP channel subscriptions (research preview)',
+          },
+          dangerouslyLoadDevelopmentChannels: {
+            type: ['string', 'array'],
+            items: { type: 'string' },
+            description: 'Load development MCP channels',
+          },
+          enablePromptCaching1H: {
+            type: 'boolean',
+            description: 'Enable 1-hour prompt cache TTL (auto-enabled with bare)',
+          },
           customEngine: {
             type: 'object',
             description:
