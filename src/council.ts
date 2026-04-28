@@ -17,6 +17,7 @@ import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   type CouncilConfig,
@@ -367,10 +368,11 @@ Start working!`;
 
 /** Resolve the path to configs/ relative to this module (works from both src/ and dist/) */
 function resolveConfigPath(filename: string): string {
-  // Try relative to source first, then relative to dist
+  const filePath = fileURLToPath(import.meta.url);
+  const dir = path.dirname(filePath);
   const candidates = [
-    path.join(path.dirname(import.meta.url.replace('file://', '')), '..', 'configs', filename),
-    path.join(path.dirname(import.meta.url.replace('file://', '')), '..', '..', 'configs', filename),
+    path.join(dir, '..', 'configs', filename),
+    path.join(dir, '..', '..', 'configs', filename),
   ];
   for (const p of candidates) {
     if (fs.existsSync(p)) return p;
@@ -568,7 +570,7 @@ export class Council extends EventEmitter {
     const trimmedTask = session.task;
 
     // Safety check: prevent council from running inside the program's own directory
-    const moduleRoot = path.resolve(path.dirname(import.meta.url.replace('file://', '')), '..');
+    const moduleRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
     const resolvedProjectDir = path.resolve(this.config.projectDir);
     if (resolvedProjectDir === moduleRoot || resolvedProjectDir.startsWith(moduleRoot + '/')) {
       throw new Error(
