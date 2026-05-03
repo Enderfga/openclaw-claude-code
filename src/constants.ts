@@ -106,6 +106,8 @@ export const CIRCUIT_BREAKER_THRESHOLD = 3;
 export const CIRCUIT_BREAKER_BACKOFF_BASE_MS = 1_000;
 /** Maximum backoff duration cap */
 export const CIRCUIT_BREAKER_MAX_BACKOFF_MS = 300_000;
+/** Maximum failure count cap (prevents unbounded backoff growth) */
+export const CIRCUIT_BREAKER_MAX_COUNT = 10;
 
 // ─── Session Events ─────────────────────────────────────────────────────────
 
