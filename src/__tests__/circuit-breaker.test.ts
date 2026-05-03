@@ -223,3 +223,25 @@ describe('Rate Limiter (unit logic)', () => {
     expect(RATE_LIMIT_WINDOW_MS).toBeGreaterThan(0);
   });
 });
+
+describe('CircuitBreaker (direct)', () => {
+  it('caps failure count at CIRCUIT_BREAKER_MAX_COUNT', async () => {
+    const { CircuitBreaker } = await import('../circuit-breaker.js');
+    const { CIRCUIT_BREAKER_MAX_COUNT } = await import('../constants.js');
+    const breaker = new CircuitBreaker();
+    for (let i = 0; i < CIRCUIT_BREAKER_MAX_COUNT + 5; i++) {
+      breaker.recordFailure('engineA');
+    }
+    expect(breaker.getStatus().engineA.failures).toBe(CIRCUIT_BREAKER_MAX_COUNT);
+  });
+
+  it('reset() clears the breaker entry', async () => {
+    const { CircuitBreaker } = await import('../circuit-breaker.js');
+    const breaker = new CircuitBreaker();
+    breaker.recordFailure('engineB');
+    breaker.recordFailure('engineB');
+    expect(breaker.getStatus().engineB.failures).toBe(2);
+    breaker.reset('engineB');
+    expect(breaker.getStatus()).not.toHaveProperty('engineB');
+  });
+});
